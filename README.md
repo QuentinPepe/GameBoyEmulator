@@ -5,42 +5,40 @@ A Game Boy (DMG) emulator written in C++23.
 ## Architecture
 
 ```mermaid
-graph TD
-    subgraph GameBoy
-        CPU["CPU<br/><i>SM83</i>"]
-        Bus["Bus<br/><i>Memory Map</i>"]
-        PPU["PPU<br/><i>Video</i>"]
-        APU["APU<br/><i>Audio</i>"]
-        Timer
-        Cart["Cartridge<br/><i>MBC1 / MBC3 / MBC5</i>"]
-        Joypad
-    end
+flowchart TD
+    CPU["CPU · SM83"] <-->|Read / Write| Bus
 
-    CPU -- "Read / Write" --> Bus
+    Bus <--> Cart["Cartridge · MBC1/3/5"]
+    Bus <--> PPU["PPU · Video"]
+    Bus <--> APU["APU · Audio"]
+    Bus <--> Timer
+    Bus <--> Joypad
 
-    Bus -- "0x0000–0x7FFF<br/>ROM" --> Cart
-    Bus -- "0xA000–0xBFFF<br/>Cart RAM" --> Cart
-    Bus -- "0x8000–0x9FFF<br/>VRAM" --> PPU
-    Bus -- "0xFF40–0xFF4B<br/>LCD regs" --> PPU
-    Bus -- "0xFF10–0xFF3F<br/>Sound regs" --> APU
-    Bus -- "0xFF04–0xFF07<br/>Timer regs" --> Timer
-    Bus -- "0xFF00" --> Joypad
+    Timer -->|IRQ| CPU
+    PPU -->|IRQ| CPU
 
-    Timer -- "IRQ bit 2" --> Bus
-    PPU -- "IRQ bit 0, 1" --> Bus
-
-    subgraph SDL2
-        Video["Video<br/><i>160×144 → window</i>"]
-        Audio["Audio<br/><i>44100 Hz mono</i>"]
-        Input["Keyboard"]
-    end
-
-    PPU -. "framebuffer" .-> Video
-    APU -. "samples" .-> Audio
-    Input -. "key events" .-> Joypad
+    PPU -.->|Framebuffer| SDL2
+    APU -.->|Samples| SDL2
+    SDL2 -.->|Input| Joypad
 ```
 
-**Execution loop:** `GameBoy::Step()` calls `CPU::Step()`, then ticks `Timer`, `PPU`, and `APU`. Interrupt flags raised by Timer/PPU are written to the IF register via Bus, and dispatched by the CPU on the next step.
+`GameBoy::Step()` calls `CPU::Step()`, then ticks Timer, PPU and APU. Interrupts raised by Timer/PPU are dispatched by the CPU on the next step.
+
+### Memory Map
+
+| Address | Component | Description |
+|---------|-----------|-------------|
+| `0x0000–0x7FFF` | Cartridge | ROM banks |
+| `0x8000–0x9FFF` | PPU | Video RAM |
+| `0xA000–0xBFFF` | Cartridge | External RAM |
+| `0xC000–0xDFFF` | Bus | Work RAM |
+| `0xFE00–0xFE9F` | PPU | OAM (sprites) |
+| `0xFF00` | Joypad | Input register |
+| `0xFF04–0xFF07` | Timer | DIV, TIMA, TMA, TAC |
+| `0xFF10–0xFF3F` | APU | Sound registers |
+| `0xFF40–0xFF4B` | PPU | LCD registers |
+| `0xFF80–0xFFFE` | Bus | High RAM |
+| `0xFFFF` | Bus | Interrupt Enable |
 
 ## Features
 
@@ -118,8 +116,8 @@ cpu_instrs/08-misc instrs.gb    PASSED
 cpu_instrs/09-op r,r.gb         PASSED
 cpu_instrs/10-bit ops.gb        PASSED
 cpu_instrs/11-op a,(hl).gb      PASSED
-instr_timing.gb                 PASSED
-halt_bug.gb                     PASSED
+instr_timing.gb                 FAILED
+halt_bug.gb                     FAILED
 mem_timing/01-read_timing.gb    FAILED (needs cycle-accurate bus)
 mem_timing/02-write_timing.gb   FAILED
 mem_timing/03-modify_timing.gb  FAILED
