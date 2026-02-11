@@ -1,0 +1,13 @@
+build/
+cmake-build-*/
+.idea/
+.vscode/
+*.user
+CMakeUserPresets.json
+*.rom
+*.gb
+*.gbc
+*.zip
+roms/
+test-roms/
+logs/
