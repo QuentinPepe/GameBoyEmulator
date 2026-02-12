@@ -2,7 +2,6 @@
 
 #include <iosfwd>
 #include <types.hpp>
-#include <print>
 
 class Joypad {
 public:

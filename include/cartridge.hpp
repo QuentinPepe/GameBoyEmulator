@@ -53,6 +53,7 @@ public:
     [[nodiscard]] bool ValidateHeaderChecksum() const;
     [[nodiscard]] bool HasRAM() const { return m_Header.RamSize > 0; }
     [[nodiscard]] bool HasBattery() const { return m_HasBattery; }
+    void SetSavePath(std::filesystem::path path);
     void SaveRAM() const;
     void SaveState(std::ostream& out) const;
     void LoadState(std::istream& in);

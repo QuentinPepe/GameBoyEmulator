@@ -7,6 +7,9 @@
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable: 4201)
+#elif defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 
 enum class Flag : U8 {
@@ -72,4 +75,6 @@ private:
 
 #ifdef _MSC_VER
 #pragma warning(pop)
+#elif defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
 #endif

@@ -1,6 +1,6 @@
 # GameBoy Emulator
 
-A Game Boy (DMG) emulator written in C++23.
+A Game Boy (DMG) emulator written in C++23. Runs on Windows, Linux and Steam Deck.
 
 ## Architecture
 
@@ -46,7 +46,7 @@ flowchart TD
 - [x] Full SM83 CPU (all instructions + CB prefix)
 - [x] PPU with background, window and sprites
 - [x] Timer and interrupts (VBlank, STAT, Timer, Joypad)
-- [x] Joypad (keyboard input)
+- [x] Joypad (keyboard + gamepad)
 - [x] MBC1, MBC3, MBC5 (ROM/RAM banking)
 - [x] 4-channel APU (2 square, wave, noise)
 - [x] SDL2 rendering and audio
@@ -60,8 +60,10 @@ flowchart TD
 - [x] Cycle-accurate timing
 
 ### Controls
-| Key | GB Button |
-|-----|-----------|
+
+#### Keyboard
+| Key | Action |
+|-----|--------|
 | Arrow keys | D-Pad |
 | Z | A |
 | X | B |
@@ -69,7 +71,22 @@ flowchart TD
 | RShift | Select |
 | F5 | Save state |
 | F8 | Load state |
+| F11 | Toggle fullscreen |
 | Escape | Quit |
+
+#### Gamepad
+| Button | Action |
+|--------|--------|
+| D-Pad | D-Pad |
+| A / Cross | A |
+| B / Circle | B |
+| Start | Start |
+| Back / Select | Select |
+| LB / L1 | Save state |
+| RB / R1 | Load state |
+| Guide / Home | Toggle fullscreen |
+
+Launch with `--fullscreen` or `-f` for fullscreen mode.
 
 ## Prerequisites
 

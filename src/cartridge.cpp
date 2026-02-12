@@ -398,6 +398,11 @@ bool Cartridge::ValidateHeaderChecksum() const {
     return checksum == m_Header.HeaderChecksum;
 }
 
+void Cartridge::SetSavePath(std::filesystem::path path) {
+    m_SavePath = std::move(path);
+    LoadSaveRAM();
+}
+
 void Cartridge::LoadSaveRAM() {
     if (!m_HasBattery) return;
 
