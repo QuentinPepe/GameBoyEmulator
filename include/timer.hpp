@@ -14,6 +14,7 @@ public:
     bool Write(U16 address, U8 value);
 
     [[nodiscard]] bool InterruptRequested();
+    void ResetDiv() { m_Div = 0; }
 
     void SaveState(std::ostream& out) const;
     void LoadState(std::istream& in);

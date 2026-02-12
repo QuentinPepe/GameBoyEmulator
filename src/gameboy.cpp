@@ -5,11 +5,12 @@
 
 GameBoy::GameBoy(Cartridge&& cart)
     : m_Cartridge{std::move(cart)}
+    , m_CgbMode{m_Cartridge.IsCgbMode()}
     , m_Timer{}
-    , m_PPU{}
+    , m_PPU{m_CgbMode}
     , m_APU{}
-    , m_Bus{m_Cartridge, m_Timer, m_PPU, m_APU}
-    , m_CPU{m_Bus}
+    , m_Bus{m_Cartridge, m_Timer, m_PPU, m_APU, m_CgbMode}
+    , m_CPU{m_Bus, m_CgbMode}
 {
 }
 

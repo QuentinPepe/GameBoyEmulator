@@ -19,6 +19,7 @@ public:
     [[nodiscard]] Bus& GetBus() { return m_Bus; }
     [[nodiscard]] const PPU& GetPPU() const { return m_PPU; }
     [[nodiscard]] APU& GetAPU() { return m_APU; }
+    [[nodiscard]] bool IsCgbMode() const { return m_CgbMode; }
 
     [[nodiscard]] bool FrameReady() { return m_PPU.FrameReady(); }
     void SaveRAM() const { m_Cartridge.SaveRAM(); }
@@ -27,6 +28,7 @@ public:
 
 private:
     Cartridge m_Cartridge;
+    bool m_CgbMode;
     Timer m_Timer;
     PPU m_PPU;
     APU m_APU;

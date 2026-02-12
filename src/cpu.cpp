@@ -4,7 +4,15 @@
 #include <istream>
 #include <state.hpp>
 
-CPU::CPU(Bus& bus) : m_Bus{bus}, AF{0x01B0}, BC{0x0013}, DE{0x00D8}, HL{0x014D}, SP{0xFFFE}, PC{0x0100}, IME{false}, m_EIDelay{0}, m_Halted{false}, m_HaltBug{false}
+CPU::CPU(Bus& bus, bool cgbMode)
+    : m_Bus{bus}
+    , m_CgbMode{cgbMode}
+    , AF{cgbMode ? U16{0x1180} : U16{0x01B0}}
+    , BC{cgbMode ? U16{0x0000} : U16{0x0013}}
+    , DE{cgbMode ? U16{0xFF56} : U16{0x00D8}}
+    , HL{cgbMode ? U16{0x000D} : U16{0x014D}}
+    , SP{0xFFFE}, PC{0x0100}, IME{false}
+    , m_EIDelay{0}, m_Halted{false}, m_HaltBug{false}
 {
 }
 
@@ -91,6 +99,13 @@ void CPU::Step()
         return;
     case 0x10: // STOP (2M: fetch + fetch 0x00)
         Fetch();
+        if (m_CgbMode && m_Bus.IsSpeedSwitchArmed())
+        {
+            m_Bus.PerformSpeedSwitch();
+            // Speed switch takes ~2050 M-cycles
+            for (int i = 0; i < 2050; i++)
+                Tick();
+        }
         return;
     case 0x02: // LD [BC], A (2M: fetch + write)
         BusWrite(BC, A);

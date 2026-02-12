@@ -52,6 +52,7 @@ public:
     [[nodiscard]] bool ValidateLogo() const;
     [[nodiscard]] bool ValidateHeaderChecksum() const;
     [[nodiscard]] bool HasRAM() const { return m_Header.RamSize > 0; }
+    [[nodiscard]] bool IsCgbMode() const { return m_Header.CgbFlag == 0x80 || m_Header.CgbFlag == 0xC0; }
     [[nodiscard]] bool HasBattery() const { return m_HasBattery; }
     void SetSavePath(std::filesystem::path path);
     void SaveRAM() const;

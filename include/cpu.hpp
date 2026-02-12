@@ -21,7 +21,7 @@ enum class Flag : U8 {
 
 class CPU {
 public:
-    explicit CPU(Bus& bus);
+    explicit CPU(Bus& bus, bool cgbMode = false);
 
     void Step();
 
@@ -43,6 +43,7 @@ public:
 
 private:
     Bus& m_Bus;
+    bool m_CgbMode;
     U8 m_EIDelay;   // Delayed IME enable (EI takes effect after next instruction)
     bool m_Halted;  // CPU is halted, waiting for interrupt
     bool m_HaltBug; // HALT bug: next opcode byte is read twice (PC not incremented)

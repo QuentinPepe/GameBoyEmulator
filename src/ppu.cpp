@@ -4,7 +4,8 @@
 #include <istream>
 #include <state.hpp>
 
-PPU::PPU()
+PPU::PPU(bool cgbMode)
+    : m_CgbMode{cgbMode}
 {
 }
 
@@ -38,6 +39,7 @@ void PPU::Tick(U8 mCycles)
         if (m_Cycles >= OAMScanCycles + DrawingCycles)
         {
             m_Mode = PPUMode::HBlank;
+            m_HBlankStart = true;
             DrawScanline();
             // STAT interrupt on Mode 0 (HBlank) if bit 3 is set
             if (m_STAT & 0x08)
@@ -122,6 +124,11 @@ std::optional<U8> PPU::Read(U16 address) const
     case 0xFF49: return m_OBP1;
     case 0xFF4A: return m_WY;
     case 0xFF4B: return m_WX;
+    case 0xFF4F: return m_CgbMode ? static_cast<U8>(m_VBK | 0xFE) : std::optional<U8>{};
+    case 0xFF68: return m_CgbMode ? std::optional<U8>{m_BCPS} : std::nullopt;
+    case 0xFF69: return m_CgbMode ? std::optional<U8>{m_BgPaletteRAM[m_BCPS & 0x3F]} : std::nullopt;
+    case 0xFF6A: return m_CgbMode ? std::optional<U8>{m_OCPS} : std::nullopt;
+    case 0xFF6B: return m_CgbMode ? std::optional<U8>{m_ObjPaletteRAM[m_OCPS & 0x3F]} : std::nullopt;
     default: return std::nullopt;
     }
 }
@@ -162,6 +169,27 @@ bool PPU::Write(U16 address, U8 value)
         return true;
     case 0xFF4B: m_WX = value;
         return true;
+    case 0xFF4F:
+        if (m_CgbMode) m_VBK = value & 0x01;
+        return m_CgbMode;
+    case 0xFF68:
+        if (m_CgbMode) m_BCPS = value;
+        return m_CgbMode;
+    case 0xFF69:
+        if (m_CgbMode) {
+            m_BgPaletteRAM[m_BCPS & 0x3F] = value;
+            if (m_BCPS & 0x80) m_BCPS = (m_BCPS & 0x80) | ((m_BCPS + 1) & 0x3F);
+        }
+        return m_CgbMode;
+    case 0xFF6A:
+        if (m_CgbMode) m_OCPS = value;
+        return m_CgbMode;
+    case 0xFF6B:
+        if (m_CgbMode) {
+            m_ObjPaletteRAM[m_OCPS & 0x3F] = value;
+            if (m_OCPS & 0x80) m_OCPS = (m_OCPS & 0x80) | ((m_OCPS + 1) & 0x3F);
+        }
+        return m_CgbMode;
     default: return false;
     }
 }
@@ -187,16 +215,26 @@ bool PPU::FrameReady()
     return ready;
 }
 
+bool PPU::HBlankStarted()
+{
+    bool started = m_HBlankStart;
+    m_HBlankStart = false;
+    return started;
+}
+
 U8 PPU::ReadVRAM(U16 address) const
 {
-    // TODO: Block during Mode 3 for accuracy
+    if (m_CgbMode)
+        return m_VRAM[(m_VBK & 1) * 0x2000 + (address & 0x1FFF)];
     return m_VRAM[address & 0x1FFF];
 }
 
 void PPU::WriteVRAM(U16 address, U8 value)
 {
-    // TODO: Block during Mode 3 for accuracy
-    m_VRAM[address & 0x1FFF] = value;
+    if (m_CgbMode)
+        m_VRAM[(m_VBK & 1) * 0x2000 + (address & 0x1FFF)] = value;
+    else
+        m_VRAM[address & 0x1FFF] = value;
 }
 
 U8 PPU::ReadOAM(U16 address) const
@@ -216,13 +254,15 @@ void PPU::DrawScanline()
     if (!(m_LCDC & 0x80))
         return;
 
-    // Background (LCDC bit 0)
-    if (m_LCDC & 0x01)
-    {
-        // Tile map base: 0x9800 (bit 3 = 0) or 0x9C00 (bit 3 = 1)
-        const U16 tileMapBase = (m_LCDC & 0x08) ? 0x1C00 : 0x1800;
+    // Clear per-scanline tracking
+    m_BgColorIndices.fill(0);
+    m_BgAttributes.fill(0);
 
-        // Tile data mode: 0x8000 (bit 4 = 1) or 0x8800 (bit 4 = 0)
+    // Background (LCDC bit 0 on DMG disables BG; on CGB it controls priority only)
+    const bool bgEnabled = m_LCDC & 0x01;
+    if (bgEnabled || m_CgbMode)
+    {
+        const U16 tileMapBase = (m_LCDC & 0x08) ? 0x1C00 : 0x1800;
         const bool unsignedMode = m_LCDC & 0x10;
 
         const U8 bgY = (m_SCY + m_LY) & 0xFF;
@@ -239,39 +279,54 @@ void PPU::DrawScanline()
 
             U16 tileDataAddr;
             if (unsignedMode)
-            {
                 tileDataAddr = tileIndex * 16;
+            else
+                tileDataAddr = 0x1000 + static_cast<S8>(tileIndex) * 16;
+
+            if (m_CgbMode)
+            {
+                const U8 attrs = m_VRAM[0x2000 + tileMapAddr];
+                const U8 cgbPalette = attrs & 0x07;
+                const U16 bankOffset = (attrs & 0x08) ? 0x2000 : 0;
+                const bool hFlip = attrs & 0x20;
+                const bool vFlip = attrs & 0x40;
+
+                const U8 effectiveY = vFlip ? (7 - pixelY) : pixelY;
+                const U16 rowAddr = tileDataAddr + effectiveY * 2;
+                const U8 pixelX = bgX % 8;
+                const U8 bit = hFlip ? pixelX : (7 - pixelX);
+                const U8 low = (m_VRAM[bankOffset + rowAddr] >> bit) & 1;
+                const U8 high = (m_VRAM[bankOffset + rowAddr + 1] >> bit) & 1;
+                const U8 colorIndex = (high << 1) | low;
+
+                const U8 palOffset = cgbPalette * 8 + colorIndex * 2;
+                m_Framebuffer[m_LY * ScreenWidth + x] = CgbColorToARGB(m_BgPaletteRAM[palOffset], m_BgPaletteRAM[palOffset + 1]);
+                m_BgColorIndices[x] = colorIndex;
+                m_BgAttributes[x] = attrs;
             }
             else
             {
-                tileDataAddr = 0x1000 + static_cast<S8>(tileIndex) * 16;
+                const U16 rowAddr = tileDataAddr + pixelY * 2;
+                const U8 pixelX = bgX % 8;
+                const U8 bit = 7 - pixelX;
+                const U8 low = (m_VRAM[rowAddr] >> bit) & 1;
+                const U8 high = (m_VRAM[rowAddr + 1] >> bit) & 1;
+                const U8 colorIndex = (high << 1) | low;
+
+                m_Framebuffer[m_LY * ScreenWidth + x] = DmgPalette[GetColorFromPalette(m_BGP, colorIndex)];
+                m_BgColorIndices[x] = colorIndex;
             }
-
-            // 2 bytes per row
-            const U16 rowAddr = tileDataAddr + pixelY * 2;
-
-            const U8 pixelX = bgX % 8;
-            const U8 bit = 7 - pixelX;
-            const U8 low = (m_VRAM[rowAddr] >> bit) & 1;
-            const U8 high = (m_VRAM[rowAddr + 1] >> bit) & 1;
-            const U8 colorIndex = (high << 1) | low;
-
-            m_Framebuffer[m_LY * ScreenWidth + x] = GetColorFromPalette(m_BGP, colorIndex);
         }
     }
 
     // Window (LCDC bit 5, WY <= LY)
     if ((m_LCDC & 0x20) && m_WY <= m_LY)
     {
-        // WX=7 means window starts at X=0
         const S32 windowX = m_WX - 7;
 
         if (windowX < ScreenWidth)
         {
-            // Tile map base: 0x9800 (bit 6 = 0) or 0x9C00 (bit 6 = 1)
             const U16 tileMapBase = (m_LCDC & 0x40) ? 0x1C00 : 0x1800;
-
-            // Same tile data mode as background (LCDC bit 4)
             const bool unsignedMode = m_LCDC & 0x10;
 
             const U8 tileY = m_WindowLine / 8;
@@ -287,24 +342,43 @@ void PPU::DrawScanline()
 
                 U16 tileDataAddr;
                 if (unsignedMode)
-                {
                     tileDataAddr = tileIndex * 16;
+                else
+                    tileDataAddr = 0x1000 + static_cast<S8>(tileIndex) * 16;
+
+                if (m_CgbMode)
+                {
+                    const U8 attrs = m_VRAM[0x2000 + tileMapAddr];
+                    const U8 cgbPalette = attrs & 0x07;
+                    const U16 bankOffset = (attrs & 0x08) ? 0x2000 : 0;
+                    const bool hFlip = attrs & 0x20;
+                    const bool vFlip = attrs & 0x40;
+
+                    const U8 effectiveY = vFlip ? (7 - pixelY) : pixelY;
+                    const U16 rowAddr = tileDataAddr + effectiveY * 2;
+                    const U8 pixelX = winX % 8;
+                    const U8 bit = hFlip ? pixelX : (7 - pixelX);
+                    const U8 low = (m_VRAM[bankOffset + rowAddr] >> bit) & 1;
+                    const U8 high = (m_VRAM[bankOffset + rowAddr + 1] >> bit) & 1;
+                    const U8 colorIndex = (high << 1) | low;
+
+                    const U8 palOffset = cgbPalette * 8 + colorIndex * 2;
+                    m_Framebuffer[m_LY * ScreenWidth + x] = CgbColorToARGB(m_BgPaletteRAM[palOffset], m_BgPaletteRAM[palOffset + 1]);
+                    m_BgColorIndices[x] = colorIndex;
+                    m_BgAttributes[x] = attrs;
                 }
                 else
                 {
-                    tileDataAddr = 0x1000 + static_cast<S8>(tileIndex) * 16;
+                    const U16 rowAddr = tileDataAddr + pixelY * 2;
+                    const U8 pixelX = winX % 8;
+                    const U8 bit = 7 - pixelX;
+                    const U8 low = (m_VRAM[rowAddr] >> bit) & 1;
+                    const U8 high = (m_VRAM[rowAddr + 1] >> bit) & 1;
+                    const U8 colorIndex = (high << 1) | low;
+
+                    m_Framebuffer[m_LY * ScreenWidth + x] = DmgPalette[GetColorFromPalette(m_BGP, colorIndex)];
+                    m_BgColorIndices[x] = colorIndex;
                 }
-
-                // 2 bytes per row
-                const U16 rowAddr = tileDataAddr + pixelY * 2;
-
-                const U8 pixelX = winX % 8;
-                const U8 bit = 7 - pixelX;
-                const U8 low = (m_VRAM[rowAddr] >> bit) & 1;
-                const U8 high = (m_VRAM[rowAddr + 1] >> bit) & 1;
-                const U8 colorIndex = (high << 1) | low;
-
-                m_Framebuffer[m_LY * ScreenWidth + x] = GetColorFromPalette(m_BGP, colorIndex);
             }
 
             m_WindowLine++;
@@ -314,10 +388,8 @@ void PPU::DrawScanline()
     // Sprites (LCDC bit 1)
     if (m_LCDC & 0x02)
     {
-        // Sprite height: 8 or 16 pixels (LCDC bit 2)
         const U8 spriteHeight = (m_LCDC & 0x04) ? 16 : 8;
 
-        // Collect visible sprites on this scanline (max 10)
         struct SpriteEntry {
             S32 x;
             S32 y;
@@ -341,15 +413,15 @@ void PPU::DrawScanline()
             }
         }
 
-        // Sort by X (lower X = higher priority = drawn last)
-        // Stable sort to preserve OAM order for same X
-        for (S32 i = 0; i < spriteCount - 1; i++)
+        // DMG: sort by X (lower X = higher priority). CGB: OAM order only.
+        if (!m_CgbMode)
         {
-            for (S32 j = i + 1; j < spriteCount; j++)
+            for (S32 i = 0; i < spriteCount - 1; i++)
             {
-                if (sprites[j].x < sprites[i].x)
+                for (S32 j = i + 1; j < spriteCount; j++)
                 {
-                    std::swap(sprites[i], sprites[j]);
+                    if (sprites[j].x < sprites[i].x)
+                        std::swap(sprites[i], sprites[j]);
                 }
             }
         }
@@ -358,22 +430,20 @@ void PPU::DrawScanline()
         for (S32 i = spriteCount - 1; i >= 0; i--)
         {
             const auto& sprite = sprites[i];
-            const U8 palette = (sprite.attrs & 0x10) ? m_OBP1 : m_OBP0;
             const bool xFlip = sprite.attrs & 0x20;
             const bool yFlip = sprite.attrs & 0x40;
-            const bool bgPriority = sprite.attrs & 0x80;
+            const bool oamBgPriority = sprite.attrs & 0x80;
 
             U8 row = static_cast<U8>(m_LY - sprite.y);
             if (yFlip)
                 row = spriteHeight - 1 - row;
 
-            // In 8x16 mode, bit 0 of tile index is ignored
             U8 tileIndex = sprite.tile;
             if (spriteHeight == 16)
                 tileIndex &= 0xFE;
 
-            // Sprite tile data is always at 0x8000
             const U16 tileDataAddr = tileIndex * 16 + row * 2;
+            const U16 bankOffset = (m_CgbMode && (sprite.attrs & 0x08)) ? 0x2000 : 0;
 
             for (S32 px = 0; px < 8; px++)
             {
@@ -382,19 +452,36 @@ void PPU::DrawScanline()
                     continue;
 
                 const U8 bit = static_cast<U8>(xFlip ? px : (7 - px));
-                const U8 low = (m_VRAM[tileDataAddr] >> bit) & 1;
-                const U8 high = (m_VRAM[tileDataAddr + 1] >> bit) & 1;
+                const U8 low = (m_VRAM[bankOffset + tileDataAddr] >> bit) & 1;
+                const U8 high = (m_VRAM[bankOffset + tileDataAddr + 1] >> bit) & 1;
                 const U8 colorIndex = (high << 1) | low;
 
-                // Color 0 is transparent
                 if (colorIndex == 0)
                     continue;
 
-                // BG priority: sprite only visible over BG color 0
-                if (bgPriority && m_Framebuffer[m_LY * ScreenWidth + screenX] != 0)
-                    continue;
+                // Priority check
+                if (m_CgbMode)
+                {
+                    // CGB: sprite hidden behind BG if (LCDC bit 0 enabled) AND (bgColorIndex != 0)
+                    // AND (OAM priority bit OR BG attr priority bit)
+                    if (bgEnabled && m_BgColorIndices[screenX] != 0)
+                    {
+                        if (oamBgPriority || (m_BgAttributes[screenX] & 0x80))
+                            continue;
+                    }
 
-                m_Framebuffer[m_LY * ScreenWidth + screenX] = GetColorFromPalette(palette, colorIndex);
+                    const U8 cgbPalette = sprite.attrs & 0x07;
+                    const U8 palOffset = cgbPalette * 8 + colorIndex * 2;
+                    m_Framebuffer[m_LY * ScreenWidth + screenX] = CgbColorToARGB(m_ObjPaletteRAM[palOffset], m_ObjPaletteRAM[palOffset + 1]);
+                }
+                else
+                {
+                    if (oamBgPriority && m_BgColorIndices[screenX] != 0)
+                        continue;
+
+                    const U8 palette = (sprite.attrs & 0x10) ? m_OBP1 : m_OBP0;
+                    m_Framebuffer[m_LY * ScreenWidth + screenX] = DmgPalette[GetColorFromPalette(palette, colorIndex)];
+                }
             }
         }
     }
@@ -403,6 +490,15 @@ void PPU::DrawScanline()
 U8 PPU::GetColorFromPalette(U8 palette, U8 colorIndex)
 {
     return (palette >> (colorIndex * 2)) & 0x03;
+}
+
+U32 PPU::CgbColorToARGB(U8 low, U8 high)
+{
+    U16 color = low | (static_cast<U16>(high) << 8);
+    U8 r = static_cast<U8>((color & 0x1F) * 255 / 31);
+    U8 g = static_cast<U8>(((color >> 5) & 0x1F) * 255 / 31);
+    U8 b = static_cast<U8>(((color >> 10) & 0x1F) * 255 / 31);
+    return 0xFF000000 | (static_cast<U32>(r) << 16) | (static_cast<U32>(g) << 8) | b;
 }
 
 void PPU::SaveState(std::ostream& out) const
@@ -427,6 +523,12 @@ void PPU::SaveState(std::ostream& out) const
     state::Write(out, m_VBlankInterrupt);
     state::Write(out, m_StatInterrupt);
     state::Write(out, m_FrameReady);
+    // CGB fields
+    state::Write(out, m_VBK);
+    state::Write(out, m_BCPS);
+    state::Write(out, m_OCPS);
+    state::Write(out, m_BgPaletteRAM);
+    state::Write(out, m_ObjPaletteRAM);
 }
 
 void PPU::LoadState(std::istream& in)
@@ -453,4 +555,10 @@ void PPU::LoadState(std::istream& in)
     state::Read(in, m_VBlankInterrupt);
     state::Read(in, m_StatInterrupt);
     state::Read(in, m_FrameReady);
+    // CGB fields
+    state::Read(in, m_VBK);
+    state::Read(in, m_BCPS);
+    state::Read(in, m_OCPS);
+    state::Read(in, m_BgPaletteRAM);
+    state::Read(in, m_ObjPaletteRAM);
 }

@@ -1,7 +1,6 @@
 #include <SDL.h>
 #include <print>
 #include <format>
-#include <array>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -70,14 +69,6 @@ void RunTests()
 
     std::println("\n{}/{} passed", passed, passed + failed);
 }
-
-// Classic Game Boy green palette
-constexpr std::array<U32, 4> Palette = {
-    0xFF9BBC0F,  // Lightest (color 0)
-    0xFF8BAC0F,  // Light (color 1)
-    0xFF306230,  // Dark (color 2)
-    0xFF0F380F   // Darkest (color 3)
-};
 
 constexpr int Scale = 4;
 constexpr int WindowWidth = PPU::ScreenWidth * Scale;
@@ -214,6 +205,7 @@ int main(int argc, char* argv[])
         return 1;
     }
     std::println("Loaded: {}", cart->Header().Title);
+    std::println("  Mode: {}", cart->IsCgbMode() ? "Game Boy Color" : "DMG");
     std::println("  Type: {:02X}, ROM: {}KB, RAM: {}KB",
         cart->Header().CartridgeType,
         32 << cart->Header().RomSize,
@@ -255,7 +247,7 @@ int main(int argc, char* argv[])
 
     // Game window
     SDL_Window* window = SDL_CreateWindow(
-        std::format("GameBoy - {}", cart->Header().Title).c_str(),
+        std::format("{} - {}", cart->IsCgbMode() ? "GameBoy Color" : "GameBoy", cart->Header().Title).c_str(),
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         WindowWidth, WindowHeight,
         SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
@@ -301,7 +293,6 @@ int main(int argc, char* argv[])
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
 
     GameBoy gb{std::move(*cart)};
-    std::array<U32, PPU::ScreenWidth * PPU::ScreenHeight> pixels{};
 
     bool running = true;
     while (running)
@@ -426,14 +417,7 @@ int main(int argc, char* argv[])
             cycles += gb.Step();
         }
 
-        // Convert framebuffer (2-bit colors) to ARGB
-        const auto& framebuffer = gb.GetPPU().GetFramebuffer();
-        for (int i = 0; i < PPU::ScreenWidth * PPU::ScreenHeight; i++)
-        {
-            pixels[i] = Palette[framebuffer[i] & 0x03];
-        }
-
-        SDL_UpdateTexture(texture, nullptr, pixels.data(), PPU::ScreenWidth * sizeof(U32));
+        SDL_UpdateTexture(texture, nullptr, gb.GetPPU().GetFramebuffer().data(), PPU::ScreenWidth * sizeof(U32));
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, nullptr, nullptr);
         SDL_RenderPresent(renderer);

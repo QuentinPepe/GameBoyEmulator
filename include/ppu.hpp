@@ -22,7 +22,7 @@ public:
     static constexpr int HBlankCycles = 204;
     static constexpr int VBlankLines = 10;
 
-    PPU();
+    explicit PPU(bool cgbMode = false);
 
     void Tick(U8 mCycles);
 
@@ -33,11 +33,13 @@ public:
     [[nodiscard]] bool VBlankInterruptRequested();
     [[nodiscard]] bool StatInterruptRequested();
     [[nodiscard]] bool FrameReady();
+    [[nodiscard]] bool HBlankStarted();
 
-    [[nodiscard]] const std::array<U8, ScreenWidth * ScreenHeight>& GetFramebuffer() const { return m_Framebuffer; }
+    [[nodiscard]] const std::array<U32, ScreenWidth * ScreenHeight>& GetFramebuffer() const { return m_Framebuffer; }
 
     [[nodiscard]] U8 GetLY() const { return m_LY; }
     [[nodiscard]] U8 GetLCDC() const { return m_LCDC; }
+    [[nodiscard]] U8 GetVBK() const { return m_VBK; }
 
     [[nodiscard]] U8 ReadVRAM(U16 address) const;
     void WriteVRAM(U16 address, U8 value);
@@ -64,10 +66,28 @@ private:
     U8 m_WY{};        // 0xFF4A - Window Y
     U8 m_WX{};        // 0xFF4B - Window X
 
-    std::array<U8, 0x2000> m_VRAM{};  // 8KB Video RAM
+    std::array<U8, 0x4000> m_VRAM{};  // 16KB Video RAM (2 banks in CGB)
     std::array<U8, 0xA0> m_OAM{};     // 160 bytes OAM
 
-    std::array<U8, ScreenWidth * ScreenHeight> m_Framebuffer{};
+    // CGB registers and palette RAM
+    U8 m_VBK{0};   // 0xFF4F: VRAM bank select (bit 0)
+    U8 m_BCPS{0};  // 0xFF68: BG palette index (bit 7=auto-inc, bits 0-5=index)
+    U8 m_OCPS{0};  // 0xFF6A: OBJ palette index
+    std::array<U8, 64> m_BgPaletteRAM{};   // 8 palettes x 4 colors x 2 bytes
+    std::array<U8, 64> m_ObjPaletteRAM{};  // 8 palettes x 4 colors x 2 bytes
+
+    std::array<U32, ScreenWidth * ScreenHeight> m_Framebuffer{};
+
+    // Per-scanline tracking for sprite priority
+    std::array<U8, ScreenWidth> m_BgColorIndices{};  // Raw BG color index (0-3)
+    std::array<U8, ScreenWidth> m_BgAttributes{};    // CGB BG tile attributes
+
+    static constexpr std::array<U32, 4> DmgPalette = {
+        0xFF9BBC0F,  // Lightest (color 0)
+        0xFF8BAC0F,  // Light (color 1)
+        0xFF306230,  // Dark (color 2)
+        0xFF0F380F   // Darkest (color 3)
+    };
 
     // Only increments when window is visible on current scanline
     U8 m_WindowLine{};
@@ -75,7 +95,11 @@ private:
     bool m_VBlankInterrupt{};
     bool m_StatInterrupt{};
     bool m_FrameReady{};
+    bool m_HBlankStart{};
+
+    bool m_CgbMode{false};
 
     void DrawScanline();
     [[nodiscard]] static U8 GetColorFromPalette(U8 palette, U8 colorIndex);
+    [[nodiscard]] static U32 CgbColorToARGB(U8 low, U8 high);
 };

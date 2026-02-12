@@ -1,6 +1,6 @@
 # GameBoy Emulator
 
-A Game Boy (DMG) emulator written in C++23. Runs on Windows, Linux and Steam Deck.
+A Game Boy and Game Boy Color emulator written in C++23. Runs on Windows, Linux and Steam Deck.
 
 ## Architecture
 
@@ -37,6 +37,11 @@ flowchart TD
 | `0xFF04–0xFF07` | Timer | DIV, TIMA, TMA, TAC |
 | `0xFF10–0xFF3F` | APU | Sound registers |
 | `0xFF40–0xFF4B` | PPU | LCD registers |
+| `0xFF4D` | Bus | CGB speed switch (KEY1) |
+| `0xFF4F` | PPU | CGB VRAM bank select |
+| `0xFF51–0xFF55` | Bus | CGB HDMA |
+| `0xFF68–0xFF6B` | PPU | CGB color palettes |
+| `0xFF70` | Bus | CGB WRAM bank select |
 | `0xFF80–0xFFFE` | Bus | High RAM |
 | `0xFFFF` | Bus | Interrupt Enable |
 
@@ -55,7 +60,7 @@ flowchart TD
 - [x] Battery-backed RAM (game saves)
 - [x] RTC (Real Time Clock) for MBC3
 - [x] Save states (F5 save, F8 load)
-- [ ] Game Boy Color (CGB) — double speed, palettes, VRAM banking
+- [x] Game Boy Color (CGB) — double speed, color palettes, VRAM/WRAM banking, HDMA
 - [ ] Serial link
 - [x] Cycle-accurate timing
 
