@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iosfwd>
 #include <types.hpp>
 #include <print>
 
@@ -45,6 +46,9 @@ public:
         // Bits 7-6 always read as 1 (unused)
         return 0xC0 | (m_Select & 0x30) | result;
     }
+
+    void SaveState(std::ostream& out) const;
+    void LoadState(std::istream& in);
 
 private:
     U8 m_Select{0x30};   // Bits 4-5: button group select

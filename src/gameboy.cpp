@@ -1,4 +1,7 @@
 #include <gameboy.hpp>
+#include <fstream>
+#include <print>
+#include <state.hpp>
 
 GameBoy::GameBoy(Cartridge&& cart)
     : m_Cartridge{std::move(cart)}
@@ -10,21 +13,50 @@ GameBoy::GameBoy(Cartridge&& cart)
 {
 }
 
-U8 GameBoy::Step()
+U32 GameBoy::Step()
 {
-    const U8 cycles = m_CPU.Step();
+    m_Bus.ResetCycleCount();
+    m_CPU.Step();
+    return m_Bus.GetCycleCount();
+}
 
-    m_Timer.Tick(cycles);
-    if (m_Timer.InterruptRequested())
-        m_Bus.SetIF(m_Bus.ReadIF() | 0x04);  // Timer interrupt = bit 2
+bool GameBoy::SaveState(std::string_view path) const
+{
+    std::ofstream file{std::string(path), std::ios::binary};
+    if (!file) return false;
 
-    m_PPU.Tick(cycles);
-    if (m_PPU.VBlankInterruptRequested())
-        m_Bus.SetIF(m_Bus.ReadIF() | 0x01);  // VBlank interrupt = bit 0
-    if (m_PPU.StatInterruptRequested())
-        m_Bus.SetIF(m_Bus.ReadIF() | 0x02);  // STAT interrupt = bit 1
+    state::Write(file, state::Magic);
+    state::Write(file, state::Version);
 
-    m_APU.Tick(cycles);
+    m_CPU.SaveState(file);
+    m_Bus.SaveState(file);
+    m_Timer.SaveState(file);
+    m_PPU.SaveState(file);
+    m_APU.SaveState(file);
+    m_Cartridge.SaveState(file);
 
-    return cycles;
+    return file.good();
+}
+
+bool GameBoy::LoadState(std::string_view path)
+{
+    std::ifstream file{std::string(path), std::ios::binary};
+    if (!file) return false;
+
+    U32 magic = 0;
+    U8 version = 0;
+    state::Read(file, magic);
+    state::Read(file, version);
+
+    if (magic != state::Magic || version != state::Version)
+        return false;
+
+    m_CPU.LoadState(file);
+    m_Bus.LoadState(file);
+    m_Timer.LoadState(file);
+    m_PPU.LoadState(file);
+    m_APU.LoadState(file);
+    m_Cartridge.LoadState(file);
+
+    return file.good();
 }

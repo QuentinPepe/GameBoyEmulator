@@ -1,5 +1,8 @@
 #include <array>
+#include <ostream>
+#include <istream>
 #include <timer.hpp>
+#include <state.hpp>
 
 void Timer::Tick(U8 mCycles)
 {
@@ -98,4 +101,22 @@ U8 Timer::GetTimerBit() const
 {
     constexpr std::array<U8, 4> BitPositions{9, 3, 5, 7};
     return BitPositions[m_TAC & 0x03];
+}
+
+void Timer::SaveState(std::ostream& out) const
+{
+    state::Write(out, m_Div);
+    state::Write(out, m_TIMA);
+    state::Write(out, m_TMA);
+    state::Write(out, m_TAC);
+    state::Write(out, m_InterruptFlag);
+}
+
+void Timer::LoadState(std::istream& in)
+{
+    state::Read(in, m_Div);
+    state::Read(in, m_TIMA);
+    state::Read(in, m_TMA);
+    state::Read(in, m_TAC);
+    state::Read(in, m_InterruptFlag);
 }

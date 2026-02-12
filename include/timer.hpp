@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iosfwd>
 #include <optional>
 #include <types.hpp>
 
@@ -12,8 +13,10 @@ public:
     [[nodiscard]] std::optional<U8> Read(U16 address) const;
     bool Write(U16 address, U8 value);
 
-    // Check if timer requested an interrupt (and clear the flag)
     [[nodiscard]] bool InterruptRequested();
+
+    void SaveState(std::ostream& out) const;
+    void LoadState(std::istream& in);
 
 private:
     // Internal 16-bit counter - only upper 8 bits are exposed as DIV (0xFF04)

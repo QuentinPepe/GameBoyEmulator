@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <iosfwd>
 #include <optional>
 #include <types.hpp>
 
@@ -99,6 +100,9 @@ public:
     [[nodiscard]] Size GetSampleCount() const { return m_SampleIndex; }
     void ClearBuffer() { m_SampleIndex = 0; }
     [[nodiscard]] bool BufferFull() const { return m_SampleIndex >= AudioBufferSize; }
+
+    void SaveState(std::ostream& out) const;
+    void LoadState(std::istream& in);
 
 private:
     void TickChannels();

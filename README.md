@@ -52,9 +52,9 @@ flowchart TD
 - [x] SDL2 rendering and audio
 
 ### TODO
-- [ ] Battery-backed RAM (game saves)
-- [ ] RTC (Real Time Clock) for MBC3
-- [ ] Save states
+- [x] Battery-backed RAM (game saves)
+- [x] RTC (Real Time Clock) for MBC3
+- [x] Save states (F5 save, F8 load)
 - [ ] Game Boy Color (CGB) — double speed, palettes, VRAM banking
 - [ ] Serial link
 - [ ] Cycle-accurate timing
@@ -67,6 +67,8 @@ flowchart TD
 | X | B |
 | Enter | Start |
 | RShift | Select |
+| F5 | Save state |
+| F8 | Load state |
 | Escape | Quit |
 
 ## Prerequisites
@@ -116,11 +118,11 @@ cpu_instrs/08-misc instrs.gb    PASSED
 cpu_instrs/09-op r,r.gb         PASSED
 cpu_instrs/10-bit ops.gb        PASSED
 cpu_instrs/11-op a,(hl).gb      PASSED
-instr_timing.gb                 FAILED
-halt_bug.gb                     FAILED
-mem_timing/01-read_timing.gb    FAILED (needs cycle-accurate bus)
-mem_timing/02-write_timing.gb   FAILED
-mem_timing/03-modify_timing.gb  FAILED
+instr_timing.gb                 PASSED
+mem_timing/01-read_timing.gb    PASSED
+mem_timing/02-write_timing.gb   PASSED
+mem_timing/03-modify_timing.gb  PASSED
+halt_bug.gb                     TIMEOUT
 ```
 
 ## Resources

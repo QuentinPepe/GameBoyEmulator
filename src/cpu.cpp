@@ -1,13 +1,33 @@
 #include <cpu.hpp>
 #include <print>
+#include <ostream>
+#include <istream>
+#include <state.hpp>
 
 CPU::CPU(Bus& bus) : m_Bus{bus}, AF{0x01B0}, BC{0x0013}, DE{0x00D8}, HL{0x014D}, SP{0xFFFE}, PC{0x0100}, IME{false}, m_EIDelay{0}, m_Halted{false}, m_HaltBug{false}
 {
 }
 
+void CPU::Tick()
+{
+    m_Bus.Tick();
+}
+
+U8 CPU::BusRead(U16 address)
+{
+    m_Bus.Tick();
+    return m_Bus.Read(address);
+}
+
+void CPU::BusWrite(U16 address, U8 value)
+{
+    m_Bus.Tick();
+    m_Bus.Write(address, value);
+}
+
 U8 CPU::Fetch()
 {
-    U8 value = m_Bus.Read(PC);
+    U8 value = BusRead(PC);
     if (m_HaltBug)
         m_HaltBug = false;  // Don't increment PC this time
     else
@@ -22,13 +42,15 @@ U16 CPU::Fetch16()
     return value;
 }
 
-U8 CPU::Step()
+void CPU::Step()
 {
     if (m_Halted) {
+        Tick();  // 1 M-cycle while halted
         if (m_Bus.ReadIF() & m_Bus.ReadIE() & 0x1F)
             m_Halted = false;
         else
-            return 4;
+            return;
+        // Fall through to EI delay check and interrupt dispatch
     }
 
     if (m_EIDelay > 0 && --m_EIDelay == 0)
@@ -40,86 +62,92 @@ U8 CPU::Step()
 
         if (const U8 pending = IF & IE & 0x1F) {
             IME = false;
-            --SP;
-            m_Bus.Write(SP, PC >> 8);
-            --SP;
-            m_Bus.Write(SP, PC & 0xFF);
-
-            if (pending & 0x01) { PC = 0x0040; m_Bus.SetIF(IF & ~0x01); }      // VBlank
-            else if (pending & 0x02) { PC = 0x0048; m_Bus.SetIF(IF & ~0x02); } // LCD STAT
-            else if (pending & 0x04) { PC = 0x0050; m_Bus.SetIF(IF & ~0x04); } // Timer
-            else if (pending & 0x08) { PC = 0x0058; m_Bus.SetIF(IF & ~0x08); } // Serial
-            else if (pending & 0x10) { PC = 0x0060; m_Bus.SetIF(IF & ~0x10); } // Joypad
-
-            return 20;  // Interrupt dispatch total cycles
+            m_HaltBug = false;  // Interrupt dispatch overrides halt bug
+            // Interrupt dispatch: 5 M-cycles
+            Tick();  // M1: internal - recognize interrupt
+            Tick();  // M2: internal - prepare SP
+            BusWrite(--SP, PC >> 8);      // M3: push PC high
+            BusWrite(--SP, PC & 0xFF);    // M4: push PC low
+            // M5: internal - set PC, clear IF bit
+            if (pending & 0x01) { PC = 0x0040; m_Bus.SetIF(IF & ~0x01); }
+            else if (pending & 0x02) { PC = 0x0048; m_Bus.SetIF(IF & ~0x02); }
+            else if (pending & 0x04) { PC = 0x0050; m_Bus.SetIF(IF & ~0x04); }
+            else if (pending & 0x08) { PC = 0x0058; m_Bus.SetIF(IF & ~0x08); }
+            else if (pending & 0x10) { PC = 0x0060; m_Bus.SetIF(IF & ~0x10); }
+            Tick();  // M5: internal
+            return;
         }
     }
 
-    const U8 opcode = Fetch();
+    const U8 opcode = Fetch();  // M1: fetch opcode (1 M-cycle)
 
     switch (opcode)
     {
-    case 0x00: // NOP
-        return 4;
-    case 0x10: // STOP - TODO: implement low-power mode / GBC speed switch
-        Fetch(); // Consume the 0x00 byte following STOP
-        return 4;
-    case 0x02: // LD [BC], A
-        m_Bus.Write(BC, A);
-        return 8;
-    case 0x07: // RLCA - Rotate Left Circular A
+    case 0x00: // NOP (1M: fetch)
+        return;
+    case 0x10: // STOP (2M: fetch + fetch 0x00)
+        Fetch();
+        return;
+    case 0x02: // LD [BC], A (2M: fetch + write)
+        BusWrite(BC, A);
+        return;
+    case 0x07: // RLCA (1M: fetch)
         {
             const U8 carry = (A >> 7) & 1;
             A = (A << 1) | carry;
             Flags = carry << 4;
         }
-        return 4;
-    case 0x08: // LD [a16], SP
+        return;
+    case 0x08: // LD [a16], SP (5M: fetch + fetch lo + fetch hi + write lo + write hi)
         {
             const U16 address = Fetch16();
-            m_Bus.Write(address, SP & 0xFF);
-            m_Bus.Write(address + 1, SP >> 8);
+            BusWrite(address, SP & 0xFF);
+            BusWrite(address + 1, SP >> 8);
         }
-        return 20;
-    case 0x0A: // LD A, [BC]
-        A = m_Bus.Read(BC);
-        return 8;
-    case 0x0F: // RRCA - Rotate Right Circular A
+        return;
+    case 0x0A: // LD A, [BC] (2M: fetch + read)
+        A = BusRead(BC);
+        return;
+    case 0x0F: // RRCA (1M: fetch)
         {
             const U8 carry = A & 1;
             A = (A >> 1) | (carry << 7);
             Flags = carry << 4;
         }
-        return 4;
-    case 0x12: // LD [DE], A
-        m_Bus.Write(DE, A);
-        return 8;
-    case 0x17: // RLA - Rotate Left A through carry
+        return;
+    case 0x12: // LD [DE], A (2M: fetch + write)
+        BusWrite(DE, A);
+        return;
+    case 0x17: // RLA (1M: fetch)
         {
             const U8 oldCarry = GetFlag(Flag::C) ? 1 : 0;
             const U8 newCarry = (A >> 7) & 1;
             A = (A << 1) | oldCarry;
             Flags = newCarry << 4;
         }
-        return 4;
-    case 0x18: // JR e8
-        PC += static_cast<S8>(Fetch());
-        return 12;
-    case 0x1A: // LD A, [DE]
-        A = m_Bus.Read(DE);
-        return 8;
-    case 0x1F: // RRA - Rotate Right A through carry
+        return;
+    case 0x18: // JR e8 (3M: fetch + fetch offset + internal)
+        {
+            const S8 offset = static_cast<S8>(Fetch());
+            PC += offset;
+            Tick();  // internal
+        }
+        return;
+    case 0x1A: // LD A, [DE] (2M: fetch + read)
+        A = BusRead(DE);
+        return;
+    case 0x1F: // RRA (1M: fetch)
         {
             const U8 oldCarry = GetFlag(Flag::C) ? 1 : 0;
             const U8 newCarry = A & 1;
             A = (A >> 1) | (oldCarry << 7);
             Flags = newCarry << 4;
         }
-        return 4;
-    case 0x22: // LD [HL+], A
-        m_Bus.Write(HL++, A);
-        return 8;
-    case 0x27: // DAA - Decimal Adjust Accumulator (BCD correction)
+        return;
+    case 0x22: // LD [HL+], A (2M: fetch + write)
+        BusWrite(HL++, A);
+        return;
+    case 0x27: // DAA (1M: fetch)
         {
             U8 correction = 0;
             bool setC = false;
@@ -136,183 +164,215 @@ U8 CPU::Step()
             A += GetFlag(Flag::N) ? -correction : correction;
 
             Flags = (A == 0 ? 0x80 : 0)
-                  | (Flags & 0x40)  // Keep N
+                  | (Flags & 0x40)
                   | (setC ? 0x10 : 0);
         }
-        return 4;
-    case 0x2A: // LD A, [HL+]
-        A = m_Bus.Read(HL++);
-        return 8;
-    case 0x2F: // CPL - Complement A
+        return;
+    case 0x2A: // LD A, [HL+] (2M: fetch + read)
+        A = BusRead(HL++);
+        return;
+    case 0x2F: // CPL (1M: fetch)
         A = ~A;
-        Flags = (Flags & 0x90) | 0x60; // Keep Z and C, set N and H
-        return 4;
-    case 0x32: // LD [HL-], A
-        m_Bus.Write(HL--, A);
-        return 8;
-    case 0x37: // SCF - Set Carry Flag
-        Flags = (Flags & 0x80) | 0x10; // Keep Z, clear N and H, set C
-        return 4;
-    case 0x3A: // LD A, [HL-]
-        A = m_Bus.Read(HL--);
-        return 8;
-    case 0x3F: // CCF - Complement Carry Flag
-        Flags = (Flags & 0x90) ^ 0x10; // Keep Z, clear N and H, flip C
-        return 4;
-    case 0x76: // HALT - Wait for interrupt (use direct register access)
+        Flags = (Flags & 0x90) | 0x60;
+        return;
+    case 0x32: // LD [HL-], A (2M: fetch + write)
+        BusWrite(HL--, A);
+        return;
+    case 0x37: // SCF (1M: fetch)
+        Flags = (Flags & 0x80) | 0x10;
+        return;
+    case 0x3A: // LD A, [HL-] (2M: fetch + read)
+        A = BusRead(HL--);
+        return;
+    case 0x3F: // CCF (1M: fetch)
+        Flags = (Flags & 0x90) ^ 0x10;
+        return;
+    case 0x76: // HALT (1M: fetch)
         if (!IME && (m_Bus.ReadIF() & m_Bus.ReadIE() & 0x1F))
-            m_HaltBug = true;  // HALT bug: PC won't increment for next fetch
+            m_HaltBug = true;
         else
             m_Halted = true;
-        return 4;
-    case 0xC3: // JP a16
-        PC = Fetch16();
-        return 16;
-    case 0xCB: // CB prefix
-        return ExecuteCB();
-    case 0xC9: // RET
-        {
-            const U8 lo = m_Bus.Read(SP++);
-            const U8 hi = m_Bus.Read(SP++);
-            PC = (hi << 8) | lo;
-            return 16;
-        }
-    case 0xD9: // RETI - Return from interrupt
-        {
-            const U8 lo = m_Bus.Read(SP++);
-            const U8 hi = m_Bus.Read(SP++);
-            PC = (hi << 8) | lo;
-            IME = true;
-            return 16;
-        }
-    case 0xCD: // CALL a16
+        return;
+    case 0xC3: // JP a16 (4M: fetch + fetch lo + fetch hi + internal)
         {
             const U16 address = Fetch16();
-            --SP;
-            m_Bus.Write(SP, PC >> 8);
-            --SP;
-            m_Bus.Write(SP, PC & 0xFF);
             PC = address;
-            return 24;
+            Tick();  // internal
         }
-    case 0xE0: // LDH [a8], A
-        m_Bus.Write(0xFF00 + Fetch(), A);
-        return 12;
-    case 0xE2: // LDH [C], A
-        m_Bus.Write(0xFF00 + C, A);
-        return 8;
-    case 0xE8: // ADD SP, e8
+        return;
+    case 0xCB: // CB prefix
+        ExecuteCB();
+        return;
+    case 0xC9: // RET (4M: fetch + read lo + read hi + internal)
+        {
+            const U8 lo = BusRead(SP++);
+            const U8 hi = BusRead(SP++);
+            PC = (hi << 8) | lo;
+            Tick();  // internal
+        }
+        return;
+    case 0xD9: // RETI (4M: fetch + read lo + read hi + internal)
+        {
+            const U8 lo = BusRead(SP++);
+            const U8 hi = BusRead(SP++);
+            PC = (hi << 8) | lo;
+            IME = true;
+            Tick();  // internal
+        }
+        return;
+    case 0xCD: // CALL a16 (6M: fetch + fetch lo + fetch hi + internal + write hi + write lo)
+        {
+            const U16 address = Fetch16();
+            Tick();  // internal
+            BusWrite(--SP, PC >> 8);
+            BusWrite(--SP, PC & 0xFF);
+            PC = address;
+        }
+        return;
+    case 0xE0: // LDH [a8], A (3M: fetch + fetch a8 + write)
+        {
+            const U8 offset = Fetch();
+            BusWrite(0xFF00 + offset, A);
+        }
+        return;
+    case 0xE2: // LDH [C], A (2M: fetch + write)
+        BusWrite(0xFF00 + C, A);
+        return;
+    case 0xE8: // ADD SP, e8 (4M: fetch + fetch imm + internal + internal)
         {
             const S8 offset = static_cast<S8>(Fetch());
             const U16 result = SP + offset;
             Flags = ((SP & 0x0F) + (offset & 0x0F) > 0x0F ? 0x20 : 0)
                   | ((SP & 0xFF) + (offset & 0xFF) > 0xFF ? 0x10 : 0);
             SP = result;
+            Tick();  // internal
+            Tick();  // internal
         }
-        return 16;
-    case 0xE9: // JP HL
+        return;
+    case 0xE9: // JP HL (1M: fetch)
         PC = HL;
-        return 4;
-    case 0xEA: // LD [a16] A
-        m_Bus.Write(Fetch16(), A);
-        return 16;
-    case 0xF0: // LDH A, [a8]
-        A = m_Bus.Read(0xFF00 + Fetch());
-        return 12;
-    case 0xF2: // LDH A, [C]
-        A = m_Bus.Read(0xFF00 + C);
-        return 8;
-    case 0xF3: // DI
+        return;
+    case 0xEA: // LD [a16] A (4M: fetch + fetch lo + fetch hi + write)
+        {
+            const U16 address = Fetch16();
+            BusWrite(address, A);
+        }
+        return;
+    case 0xF0: // LDH A, [a8] (3M: fetch + fetch a8 + read)
+        {
+            const U8 offset = Fetch();
+            A = BusRead(0xFF00 + offset);
+        }
+        return;
+    case 0xF2: // LDH A, [C] (2M: fetch + read)
+        A = BusRead(0xFF00 + C);
+        return;
+    case 0xF3: // DI (1M: fetch)
         IME = false;
-        return 4;
-    case 0xF8: // LD HL, SP+e8
+        return;
+    case 0xF8: // LD HL, SP+e8 (3M: fetch + fetch imm + internal)
         {
             const S8 offset = static_cast<S8>(Fetch());
             const U16 result = SP + offset;
             Flags = ((SP & 0x0F) + (offset & 0x0F) > 0x0F ? 0x20 : 0)
                   | ((SP & 0xFF) + (offset & 0xFF) > 0xFF ? 0x10 : 0);
             HL = result;
+            Tick();  // internal
         }
-        return 12;
-    case 0xF9: // LD SP, HL
+        return;
+    case 0xF9: // LD SP, HL (2M: fetch + internal)
         SP = HL;
-        return 8;
-    case 0xFA: // LD A, [a16]
-        A = m_Bus.Read(Fetch16());
-        return 16;
-    case 0xFB: // EI - Enable Interrupts (delayed by one instruction)
+        Tick();  // internal
+        return;
+    case 0xFA: // LD A, [a16] (4M: fetch + fetch lo + fetch hi + read)
+        {
+            const U16 address = Fetch16();
+            A = BusRead(address);
+        }
+        return;
+    case 0xFB: // EI (1M: fetch)
         m_EIDelay = 2;
-        return 4;
+        return;
     default:
         // LD r,r': opcodes 0x40-0x7F (except 0x76 = HALT)
-        // Binary format: 01 DDD SSS
-        //   DDD = destination register (bits 5-3)
-        //   SSS = source register (bits 2-0)
         if (opcode >= 0x40 && opcode <= 0x7F && opcode != 0x76)
         {
             const U8 dest = (opcode >> 3) & 0x07;
             const U8 src = opcode & 0x07;
-            SetReg(dest, GetReg(src));
-            return (dest == 6 || src == 6) ? 8 : 4;
+
+            // Handle [HL] explicitly for proper timing
+            U8 value;
+            if (src == 6)
+                value = BusRead(HL);  // 1 extra M-cycle for read
+            else
+                value = GetReg(src);
+
+            if (dest == 6)
+                BusWrite(HL, value);  // 1 extra M-cycle for write
+            else
+                SetReg(dest, value);
+
+            return;
         }
 
-        // INC r: opcodes 0x04, 0x0C, 0x14, 0x1C, 0x24, 0x2C, 0x34, 0x3C
-        // DEC r: opcodes 0x05, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D
-        // Binary format: 00 RRR 10X (X=0 for INC, X=1 for DEC)
+        // INC r / DEC r
         if ((opcode & 0xC7) == 0x04) // INC r
         {
             const U8 reg = (opcode >> 3) & 0x07;
-            if (reg == 6) // [HL]
+            if (reg == 6) // [HL] (3M: fetch + read + write)
             {
-                U8 value = m_Bus.Read(HL);
+                U8 value = BusRead(HL);
                 ++value;
                 Flags = (Flags & 0x10) | (value == 0 ? 0x80 : 0) | ((value & 0x0F) == 0 ? 0x20 : 0);
-                m_Bus.Write(HL, value);
-                return 12;
+                BusWrite(HL, value);
             }
-            U8 value = GetReg(reg);
-            ++value;
-            Flags = (Flags & 0x10) | (value == 0 ? 0x80 : 0) | ((value & 0x0F) == 0 ? 0x20 : 0);
-            SetReg(reg, value);
-            return 4;
+            else // register (1M: fetch)
+            {
+                U8 value = GetReg(reg);
+                ++value;
+                Flags = (Flags & 0x10) | (value == 0 ? 0x80 : 0) | ((value & 0x0F) == 0 ? 0x20 : 0);
+                SetReg(reg, value);
+            }
+            return;
         }
         if ((opcode & 0xC7) == 0x05) // DEC r
         {
             const U8 reg = (opcode >> 3) & 0x07;
-            if (reg == 6) // [HL]
+            if (reg == 6) // [HL] (3M: fetch + read + write)
             {
-                U8 value = m_Bus.Read(HL);
+                U8 value = BusRead(HL);
                 --value;
                 Flags = (Flags & 0x10) | 0x40 | (value == 0 ? 0x80 : 0) | ((value & 0x0F) == 0x0F ? 0x20 : 0);
-                m_Bus.Write(HL, value);
-                return 12;
+                BusWrite(HL, value);
             }
-            U8 value = GetReg(reg);
-            --value;
-            Flags = (Flags & 0x10) | 0x40 | (value == 0 ? 0x80 : 0) | ((value & 0x0F) == 0x0F ? 0x20 : 0);
-            SetReg(reg, value);
-            return 4;
+            else // register (1M: fetch)
+            {
+                U8 value = GetReg(reg);
+                --value;
+                Flags = (Flags & 0x10) | 0x40 | (value == 0 ? 0x80 : 0) | ((value & 0x0F) == 0x0F ? 0x20 : 0);
+                SetReg(reg, value);
+            }
+            return;
         }
 
-        // LD r, n8: opcodes 0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x36, 0x3E
-        // Binary format: 00 RRR 110
+        // LD r, n8 (2M: fetch + fetch imm; 3M if [HL]: fetch + fetch imm + write)
         if ((opcode & 0xC7) == 0x06)
         {
             const U8 reg = (opcode >> 3) & 0x07;
             const U8 value = Fetch();
-            SetReg(reg, value);
-            return (reg == 6) ? 12 : 8;
+            if (reg == 6)
+                BusWrite(HL, value);
+            else
+                SetReg(reg, value);
+            return;
         }
 
-        // ALU A, r: opcodes 0x80-0xBF
-        // Binary format: 10 OOO SSS
-        //   OOO = operation (0=ADD, 1=ADC, 2=SUB, 3=SBC, 4=AND, 5=XOR, 6=OR, 7=CP)
-        //   SSS = source register
+        // ALU A, r (1M or 2M if src=[HL])
         if (opcode >= 0x80 && opcode <= 0xBF)
         {
             const U8 op = (opcode >> 3) & 0x07;
             const U8 src = opcode & 0x07;
-            const U8 value = GetReg(src);
+            const U8 value = (src == 6) ? BusRead(HL) : GetReg(src);
             switch (op)
             {
             case 0: Add(value); break;
@@ -324,12 +384,10 @@ U8 CPU::Step()
             case 6: Or(value); break;
             case 7: Cp(value); break;
             }
-            return (src == 6) ? 8 : 4;
+            return;
         }
 
-        // ALU A, n8: opcodes 0xC6, 0xCE, 0xD6, 0xDE, 0xE6, 0xEE, 0xF6, 0xFE
-        // Binary format: 11 OOO 110
-        //   OOO = operation (same as ALU A, r)
+        // ALU A, n8 (2M: fetch + fetch imm)
         if ((opcode & 0xC7) == 0xC6)
         {
             const U8 op = (opcode >> 3) & 0x07;
@@ -345,47 +403,44 @@ U8 CPU::Step()
             case 6: Or(value); break;
             case 7: Cp(value); break;
             }
-            return 8;
+            return;
         }
 
-        // PUSH/POP rr: opcodes 0xC1/0xC5, 0xD1/0xD5, 0xE1/0xE5, 0xF1/0xF5
-        // Binary format: 11 PP 0001 (POP) or 11 PP 0101 (PUSH)
-        //   PP = register pair (0=BC, 1=DE, 2=HL, 3=AF)
-        if ((opcode & 0xCF) == 0xC1) // POP
+        // POP rr (3M: fetch + read lo + read hi)
+        if ((opcode & 0xCF) == 0xC1)
         {
             const U8 pair = (opcode >> 4) & 0x03;
-            const U8 lo = m_Bus.Read(SP++);
-            const U8 hi = m_Bus.Read(SP++);
+            const U8 lo = BusRead(SP++);
+            const U8 hi = BusRead(SP++);
             SetReg16(pair, (hi << 8) | lo);
-            return 12;
+            return;
         }
-        if ((opcode & 0xCF) == 0xC5) // PUSH
+        // PUSH rr (4M: fetch + internal + write hi + write lo)
+        if ((opcode & 0xCF) == 0xC5)
         {
             const U8 pair = (opcode >> 4) & 0x03;
             const U16 value = GetReg16(pair);
-            --SP;
-            m_Bus.Write(SP, value >> 8);
-            --SP;
-            m_Bus.Write(SP, value & 0xFF);
-            return 16;
+            Tick();  // internal
+            BusWrite(--SP, value >> 8);
+            BusWrite(--SP, value & 0xFF);
+            return;
         }
 
-        // ADD HL, rr: opcodes 0x09, 0x19, 0x29, 0x39
-        // Binary format: 00 PP 1001
+        // ADD HL, rr (2M: fetch + internal)
         if ((opcode & 0xCF) == 0x09)
         {
             const U8 pair = (opcode >> 4) & 0x03;
             const U16 value = (pair == 3) ? SP : GetReg16(pair);
             const U32 result = HL + value;
-            Flags = (Flags & 0x80) // Z not affected
-                  | ((HL & 0x0FFF) + (value & 0x0FFF) > 0x0FFF ? 0x20 : 0) // H
-                  | (result > 0xFFFF ? 0x10 : 0); // C
+            Flags = (Flags & 0x80)
+                  | ((HL & 0x0FFF) + (value & 0x0FFF) > 0x0FFF ? 0x20 : 0)
+                  | (result > 0xFFFF ? 0x10 : 0);
             HL = static_cast<U16>(result);
-            return 8;
+            Tick();  // internal
+            return;
         }
 
-        // LD rr, n16: opcodes 0x01, 0x11, 0x21, 0x31
-        // Binary format: 00 PP 0001
+        // LD rr, n16 (3M: fetch + fetch lo + fetch hi)
         if ((opcode & 0xCF) == 0x01)
         {
             const U8 pair = (opcode >> 4) & 0x03;
@@ -394,29 +449,28 @@ U8 CPU::Step()
                 SP = value;
             else
                 SetReg16(pair, value);
-            return 12;
+            return;
         }
 
-        // INC rr: opcodes 0x03, 0x13, 0x23, 0x33
-        // Binary format: 00 PP 0011
+        // INC rr (2M: fetch + internal)
         if ((opcode & 0xCF) == 0x03)
         {
             const U8 pair = (opcode >> 4) & 0x03;
             ++(pair == 3 ? SP : GetReg16Ref(pair));
-            return 8;
+            Tick();  // internal
+            return;
         }
 
-        // DEC rr: opcodes 0x0B, 0x1B, 0x2B, 0x3B
-        // Binary format: 00 PP 1011
+        // DEC rr (2M: fetch + internal)
         if ((opcode & 0xCF) == 0x0B)
         {
             const U8 pair = (opcode >> 4) & 0x03;
             --(pair == 3 ? SP : GetReg16Ref(pair));
-            return 8;
+            Tick();  // internal
+            return;
         }
 
-        // JR cc, e8: opcodes 0x20, 0x28, 0x30, 0x38
-        // Binary format: 001 CC 000
+        // JR cc, e8 (2M not taken: fetch + fetch offset; 3M taken: + internal)
         if ((opcode & 0xE7) == 0x20)
         {
             const U8 cc = (opcode >> 3) & 0x03;
@@ -424,28 +478,27 @@ U8 CPU::Step()
             if (CheckCondition(cc))
             {
                 PC += offset;
-                return 12;
+                Tick();  // internal (branch taken)
             }
-            return 8;
+            return;
         }
 
-        // RET cc: opcodes 0xC0, 0xC8, 0xD0, 0xD8
-        // Binary format: 110 CC 000
+        // RET cc (2M not taken: fetch + internal; 5M taken: fetch + internal + read lo + read hi + internal)
         if ((opcode & 0xE7) == 0xC0)
         {
             const U8 cc = (opcode >> 3) & 0x03;
+            Tick();  // internal (condition eval)
             if (CheckCondition(cc))
             {
-                const U8 lo = m_Bus.Read(SP++);
-                const U8 hi = m_Bus.Read(SP++);
+                const U8 lo = BusRead(SP++);
+                const U8 hi = BusRead(SP++);
                 PC = (hi << 8) | lo;
-                return 20;
+                Tick();  // internal
             }
-            return 8;
+            return;
         }
 
-        // JP cc, a16: opcodes 0xC2, 0xCA, 0xD2, 0xDA
-        // Binary format: 110 CC 010
+        // JP cc, a16 (3M not taken: fetch + fetch lo + fetch hi; 4M taken: + internal)
         if ((opcode & 0xE7) == 0xC2)
         {
             const U8 cc = (opcode >> 3) & 0x03;
@@ -453,44 +506,38 @@ U8 CPU::Step()
             if (CheckCondition(cc))
             {
                 PC = address;
-                return 16;
+                Tick();  // internal (branch taken)
             }
-            return 12;
+            return;
         }
 
-        // CALL cc, a16: opcodes 0xC4, 0xCC, 0xD4, 0xDC
-        // Binary format: 110 CC 100
+        // CALL cc, a16 (3M not taken; 6M taken: fetch + fetch lo + fetch hi + internal + write hi + write lo)
         if ((opcode & 0xE7) == 0xC4)
         {
             const U8 cc = (opcode >> 3) & 0x03;
             const U16 address = Fetch16();
             if (CheckCondition(cc))
             {
-                --SP;
-                m_Bus.Write(SP, PC >> 8);
-                --SP;
-                m_Bus.Write(SP, PC & 0xFF);
+                Tick();  // internal
+                BusWrite(--SP, PC >> 8);
+                BusWrite(--SP, PC & 0xFF);
                 PC = address;
-                return 24;
             }
-            return 12;
+            return;
         }
 
-        // RST n: opcodes 0xC7, 0xCF, 0xD7, 0xDF, 0xE7, 0xEF, 0xF7, 0xFF
-        // Binary format: 11 TTT 111 (target = TTT * 8)
+        // RST n (4M: fetch + internal + write hi + write lo)
         if ((opcode & 0xC7) == 0xC7)
         {
-            const U8 target = opcode & 0x38; // TTT * 8
-            --SP;
-            m_Bus.Write(SP, PC >> 8);
-            --SP;
-            m_Bus.Write(SP, PC & 0xFF);
+            const U8 target = opcode & 0x38;
+            Tick();  // internal
+            BusWrite(--SP, PC >> 8);
+            BusWrite(--SP, PC & 0xFF);
             PC = target;
-            return 16;
+            return;
         }
 
-        //std::println("Unknown opcode: 0x{:02X}", opcode);
-        return 0;
+        return;
     }
 }
 
@@ -614,7 +661,7 @@ U8 CPU::GetReg(U8 index) const
     case 3: return E;
     case 4: return H;
     case 5: return L;
-    case 6: return m_Bus.Read(HL);
+    case 6: return m_Bus.Read(HL);  // Note: unticked, only for non-timing-critical paths
     case 7: return A;
     default: return 0;
     }
@@ -630,7 +677,7 @@ void CPU::SetReg(U8 index, U8 value)
     case 3: E = value; break;
     case 4: H = value; break;
     case 5: L = value; break;
-    case 6: m_Bus.Write(HL, value); break;
+    case 6: m_Bus.Write(HL, value); break;  // Note: unticked, only for non-timing-critical paths
     case 7: A = value; break;
     }
 }
@@ -654,7 +701,7 @@ void CPU::SetReg16(U8 index, U16 value)
     case 0: BC = value; break;
     case 1: DE = value; break;
     case 2: HL = value; break;
-    case 3: AF = value & 0xFFF0; break; // Lower 4 bits of F are always 0
+    case 3: AF = value & 0xFFF0; break;
     }
 }
 
@@ -665,13 +712,12 @@ U16& CPU::GetReg16Ref(U8 index)
     case 0: return BC;
     case 1: return DE;
     case 2: return HL;
-    default: return SP; // index 3 = SP for INC/DEC rr
+    default: return SP;
     }
 }
 
 bool CPU::CheckCondition(U8 cc) const
 {
-    // cc: 0=NZ, 1=Z, 2=NC, 3=C
     switch (cc)
     {
     case 0: return !GetFlag(Flag::Z);
@@ -682,36 +728,41 @@ bool CPU::CheckCondition(U8 cc) const
     }
 }
 
-U8 CPU::ExecuteCB()
+void CPU::ExecuteCB()
 {
-    const U8 opcode = Fetch();
+    const U8 opcode = Fetch();  // M2: fetch CB opcode
     const U8 reg = opcode & 0x07;
     const U8 bit = (opcode >> 3) & 0x07;
     const U8 op = (opcode >> 6) & 0x03;
-
-    U8 value = GetReg(reg);
     const bool isHL = (reg == 6);
+
+    // Read the value: from register or [HL] with ticked read
+    U8 value;
+    if (isHL)
+        value = BusRead(HL);  // M3: read [HL]
+    else
+        value = GetReg(reg);
 
     switch (op)
     {
     case 0: // Rotates and shifts (0x00-0x3F)
         switch (bit)
         {
-        case 0: // RLC - Rotate Left Circular
+        case 0: // RLC
             {
                 const U8 carry = (value >> 7) & 1;
                 value = (value << 1) | carry;
                 Flags = (value == 0 ? 0x80 : 0) | (carry << 4);
             }
             break;
-        case 1: // RRC - Rotate Right Circular
+        case 1: // RRC
             {
                 const U8 carry = value & 1;
                 value = (value >> 1) | (carry << 7);
                 Flags = (value == 0 ? 0x80 : 0) | (carry << 4);
             }
             break;
-        case 2: // RL - Rotate Left through Carry
+        case 2: // RL
             {
                 const U8 oldCarry = GetFlag(Flag::C) ? 1 : 0;
                 const U8 newCarry = (value >> 7) & 1;
@@ -719,7 +770,7 @@ U8 CPU::ExecuteCB()
                 Flags = (value == 0 ? 0x80 : 0) | (newCarry << 4);
             }
             break;
-        case 3: // RR - Rotate Right through Carry
+        case 3: // RR
             {
                 const U8 oldCarry = GetFlag(Flag::C) ? 1 : 0;
                 const U8 newCarry = value & 1;
@@ -727,25 +778,25 @@ U8 CPU::ExecuteCB()
                 Flags = (value == 0 ? 0x80 : 0) | (newCarry << 4);
             }
             break;
-        case 4: // SLA - Shift Left Arithmetic
+        case 4: // SLA
             {
                 const U8 carry = (value >> 7) & 1;
                 value <<= 1;
                 Flags = (value == 0 ? 0x80 : 0) | (carry << 4);
             }
             break;
-        case 5: // SRA - Shift Right Arithmetic (preserves sign)
+        case 5: // SRA
             {
                 const U8 carry = value & 1;
                 value = (value >> 1) | (value & 0x80);
                 Flags = (value == 0 ? 0x80 : 0) | (carry << 4);
             }
             break;
-        case 6: // SWAP - Swap nibbles
+        case 6: // SWAP
             value = ((value & 0x0F) << 4) | ((value >> 4) & 0x0F);
             Flags = (value == 0 ? 0x80 : 0);
             break;
-        case 7: // SRL - Shift Right Logical
+        case 7: // SRL
             {
                 const U8 carry = value & 1;
                 value >>= 1;
@@ -753,23 +804,60 @@ U8 CPU::ExecuteCB()
             }
             break;
         }
-        SetReg(reg, value);
+        // Write back
+        if (isHL)
+            BusWrite(HL, value);  // M4: write [HL]
+        else
+            SetReg(reg, value);
         break;
 
-    case 1: // BIT - Test bit (0x40-0x7F)
+    case 1: // BIT (read-only, no write-back)
         Flags = (Flags & 0x10) | 0x20 | ((value & (1 << bit)) == 0 ? 0x80 : 0);
-        return isHL ? 12 : 8; // BIT doesn't write back
+        // No write-back for BIT; [HL] is 3M total (fetch CB + fetch op + read)
+        return;
 
-    case 2: // RES - Reset bit (0x80-0xBF)
+    case 2: // RES
         value &= ~(1 << bit);
-        SetReg(reg, value);
+        if (isHL)
+            BusWrite(HL, value);
+        else
+            SetReg(reg, value);
         break;
 
-    case 3: // SET - Set bit (0xC0-0xFF)
+    case 3: // SET
         value |= (1 << bit);
-        SetReg(reg, value);
+        if (isHL)
+            BusWrite(HL, value);
+        else
+            SetReg(reg, value);
         break;
     }
+}
 
-    return isHL ? 16 : 8;
+void CPU::SaveState(std::ostream& out) const
+{
+    state::Write(out, AF);
+    state::Write(out, BC);
+    state::Write(out, DE);
+    state::Write(out, HL);
+    state::Write(out, SP);
+    state::Write(out, PC);
+    state::Write(out, IME);
+    state::Write(out, m_EIDelay);
+    state::Write(out, m_Halted);
+    state::Write(out, m_HaltBug);
+}
+
+void CPU::LoadState(std::istream& in)
+{
+    state::Read(in, AF);
+    state::Read(in, BC);
+    state::Read(in, DE);
+    state::Read(in, HL);
+    state::Read(in, SP);
+    state::Read(in, PC);
+    state::Read(in, IME);
+    state::Read(in, m_EIDelay);
+    state::Read(in, m_Halted);
+    state::Read(in, m_HaltBug);
 }

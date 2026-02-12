@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <iosfwd>
 #include <optional>
 #include <types.hpp>
 
@@ -42,6 +43,9 @@ public:
     void WriteVRAM(U16 address, U8 value);
     [[nodiscard]] U8 ReadOAM(U16 address) const;
     void WriteOAM(U16 address, U8 value);
+
+    void SaveState(std::ostream& out) const;
+    void LoadState(std::istream& in);
 
 private:
     U16 m_Cycles{};  // 0-455, position within current scanline

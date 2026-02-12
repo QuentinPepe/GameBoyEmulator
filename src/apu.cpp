@@ -1,4 +1,7 @@
 #include <apu.hpp>
+#include <ostream>
+#include <istream>
+#include <state.hpp>
 
 namespace {
     // Duty cycle patterns for square waves
@@ -456,6 +459,50 @@ std::optional<U8> APU::Read(U16 address) const {
     }
 }
 
+namespace {
+
+void SaveSquareChannel(std::ostream& out, const SquareChannel& ch) {
+    state::Write(out, ch.sweep);
+    state::Write(out, ch.lengthDuty);
+    state::Write(out, ch.envelope);
+    state::Write(out, ch.freqLow);
+    state::Write(out, ch.freqHigh);
+    state::Write(out, ch.enabled);
+    state::Write(out, ch.dacEnabled);
+    state::Write(out, ch.frequencyTimer);
+    state::Write(out, ch.dutyPosition);
+    state::Write(out, ch.lengthCounter);
+    state::Write(out, ch.periodTimer);
+    state::Write(out, ch.currentVolume);
+    state::Write(out, ch.envelopeRunning);
+    state::Write(out, ch.sweepEnabled);
+    state::Write(out, ch.sweepFrequency);
+    state::Write(out, ch.sweepTimer);
+    state::Write(out, ch.sweepNegate);
+}
+
+void LoadSquareChannel(std::istream& in, SquareChannel& ch) {
+    state::Read(in, ch.sweep);
+    state::Read(in, ch.lengthDuty);
+    state::Read(in, ch.envelope);
+    state::Read(in, ch.freqLow);
+    state::Read(in, ch.freqHigh);
+    state::Read(in, ch.enabled);
+    state::Read(in, ch.dacEnabled);
+    state::Read(in, ch.frequencyTimer);
+    state::Read(in, ch.dutyPosition);
+    state::Read(in, ch.lengthCounter);
+    state::Read(in, ch.periodTimer);
+    state::Read(in, ch.currentVolume);
+    state::Read(in, ch.envelopeRunning);
+    state::Read(in, ch.sweepEnabled);
+    state::Read(in, ch.sweepFrequency);
+    state::Read(in, ch.sweepTimer);
+    state::Read(in, ch.sweepNegate);
+}
+
+} // anonymous namespace
+
 bool APU::Write(U16 address, U8 value) {
     // If APU is off, only NR52 and wave RAM can be written
     if (!(m_NR52 & 0x80) && address != 0xFF26 && (address < 0xFF30 || address > 0xFF3F)) {
@@ -584,4 +631,88 @@ bool APU::Write(U16 address, U8 value) {
             }
             return false;
     }
+}
+
+void APU::SaveState(std::ostream& out) const
+{
+    SaveSquareChannel(out, m_Channel1);
+    SaveSquareChannel(out, m_Channel2);
+
+    // Wave channel
+    state::Write(out, m_Channel3.dacEnable);
+    state::Write(out, m_Channel3.length);
+    state::Write(out, m_Channel3.volume);
+    state::Write(out, m_Channel3.freqLow);
+    state::Write(out, m_Channel3.freqHigh);
+    state::Write(out, m_Channel3.waveRAM);
+    state::Write(out, m_Channel3.enabled);
+    state::Write(out, m_Channel3.frequencyTimer);
+    state::Write(out, m_Channel3.positionCounter);
+    state::Write(out, m_Channel3.lengthCounter);
+    state::Write(out, m_Channel3.sampleBuffer);
+
+    // Noise channel
+    state::Write(out, m_Channel4.length);
+    state::Write(out, m_Channel4.envelope);
+    state::Write(out, m_Channel4.polynomial);
+    state::Write(out, m_Channel4.control);
+    state::Write(out, m_Channel4.enabled);
+    state::Write(out, m_Channel4.dacEnabled);
+    state::Write(out, m_Channel4.frequencyTimer);
+    state::Write(out, m_Channel4.lengthCounter);
+    state::Write(out, m_Channel4.periodTimer);
+    state::Write(out, m_Channel4.currentVolume);
+    state::Write(out, m_Channel4.envelopeRunning);
+    state::Write(out, m_Channel4.lfsr);
+
+    // Master control
+    state::Write(out, m_NR50);
+    state::Write(out, m_NR51);
+    state::Write(out, m_NR52);
+    state::Write(out, m_FrameSequencerTimer);
+    state::Write(out, m_FrameSequencerStep);
+    state::Write(out, m_SampleTimer);
+}
+
+void APU::LoadState(std::istream& in)
+{
+    LoadSquareChannel(in, m_Channel1);
+    LoadSquareChannel(in, m_Channel2);
+
+    // Wave channel
+    state::Read(in, m_Channel3.dacEnable);
+    state::Read(in, m_Channel3.length);
+    state::Read(in, m_Channel3.volume);
+    state::Read(in, m_Channel3.freqLow);
+    state::Read(in, m_Channel3.freqHigh);
+    state::Read(in, m_Channel3.waveRAM);
+    state::Read(in, m_Channel3.enabled);
+    state::Read(in, m_Channel3.frequencyTimer);
+    state::Read(in, m_Channel3.positionCounter);
+    state::Read(in, m_Channel3.lengthCounter);
+    state::Read(in, m_Channel3.sampleBuffer);
+
+    // Noise channel
+    state::Read(in, m_Channel4.length);
+    state::Read(in, m_Channel4.envelope);
+    state::Read(in, m_Channel4.polynomial);
+    state::Read(in, m_Channel4.control);
+    state::Read(in, m_Channel4.enabled);
+    state::Read(in, m_Channel4.dacEnabled);
+    state::Read(in, m_Channel4.frequencyTimer);
+    state::Read(in, m_Channel4.lengthCounter);
+    state::Read(in, m_Channel4.periodTimer);
+    state::Read(in, m_Channel4.currentVolume);
+    state::Read(in, m_Channel4.envelopeRunning);
+    state::Read(in, m_Channel4.lfsr);
+
+    // Master control
+    state::Read(in, m_NR50);
+    state::Read(in, m_NR51);
+    state::Read(in, m_NR52);
+    state::Read(in, m_FrameSequencerTimer);
+    state::Read(in, m_FrameSequencerStep);
+    state::Read(in, m_SampleTimer);
+
+    m_SampleIndex = 0;
 }

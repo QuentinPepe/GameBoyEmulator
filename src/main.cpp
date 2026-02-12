@@ -2,6 +2,7 @@
 #include <print>
 #include <format>
 #include <array>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -44,8 +45,8 @@ void RunTests()
 
         GameBoy gb{std::move(*cart)};
 
-        int cycles = 0;
-        constexpr int maxCycles = 100'000'000;
+        U32 cycles = 0;
+        constexpr U32 maxCycles = 100'000'000;
 
         while (gb.GetBus().GetTestResult() == TestResult::Running && cycles < maxCycles)
         {
@@ -91,7 +92,7 @@ int main(int argc, char* argv[])
     }
     else
     {
-        romPath = std::format("{}/pokemon_red.gb", paths::Roms);
+        romPath = std::format("{}/halt_bug.gb", paths::TestRoms);
     }
 
     auto cart = Cartridge::Load(romPath);
@@ -170,6 +171,8 @@ int main(int argc, char* argv[])
     std::array<U32, PPU::ScreenWidth * PPU::ScreenHeight> pixels{};
     constexpr U32 FrameTimeMs = 16;  // ~60 FPS
 
+    auto statePath = std::filesystem::path(romPath).replace_extension(".ss0").string();
+
     bool running = true;
     while (running)
     {
@@ -188,6 +191,18 @@ int main(int argc, char* argv[])
                 switch (event.key.keysym.sym)
                 {
                 case SDLK_ESCAPE: running = false; break;
+                case SDLK_F5:
+                    if (gb.SaveState(statePath))
+                        std::println("State saved");
+                    else
+                        std::println("Save state failed");
+                    break;
+                case SDLK_F8:
+                    if (gb.LoadState(statePath))
+                        std::println("State loaded");
+                    else
+                        std::println("Load state failed");
+                    break;
                 case SDLK_RIGHT:  joypad.Press(Joypad::Right); break;
                 case SDLK_LEFT:   joypad.Press(Joypad::Left); break;
                 case SDLK_UP:     joypad.Press(Joypad::Up); break;
@@ -214,7 +229,7 @@ int main(int argc, char* argv[])
             }
         }
 
-        int cycles = 0;
+        U32 cycles = 0;
         while (!gb.FrameReady() && cycles < 1000000)
         {
             cycles += gb.Step();
@@ -246,6 +261,8 @@ int main(int argc, char* argv[])
             SDL_Delay(FrameTimeMs - frameTime);
         }
     }
+
+    gb.SaveRAM();
 
     if (audioDevice != 0)
         SDL_CloseAudioDevice(audioDevice);

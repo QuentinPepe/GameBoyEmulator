@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <iosfwd>
 #include <string>
 
 #include <types.hpp>
@@ -22,11 +23,18 @@ public:
     [[nodiscard]] U8 Read(U16 address) const;
     void Write(U16 address, U8 value);
 
+    void Tick();  // Advance 1 M-cycle (4 T-cycles): ticks Timer, PPU, APU, handles interrupts
+    [[nodiscard]] U32 GetCycleCount() const { return m_CycleCount; }
+    void ResetCycleCount() { m_CycleCount = 0; }
+
     [[nodiscard]] U8 ReadIF() const { return m_IoRegisters[0x0F]; }
     [[nodiscard]] U8 ReadIE() const { return m_InterruptEnable; }
     void SetIF(U8 value) { m_IoRegisters[0x0F] = value; }
 
     [[nodiscard]] TestResult GetTestResult() const { return m_TestResult; }
+
+    void SaveState(std::ostream& out) const;
+    void LoadState(std::istream& in);
 
 private:
 
@@ -39,6 +47,7 @@ private:
     std::array<U8, 0x80> m_IoRegisters{};
     std::array<U8, 0x7F> m_HighRam{};
     U8 m_InterruptEnable{};
+    U32 m_CycleCount{};
 
     std::string m_SerialBuffer;
     TestResult m_TestResult{TestResult::Running};

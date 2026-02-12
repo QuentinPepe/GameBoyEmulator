@@ -3,6 +3,9 @@
 #include <ppu.hpp>
 #include <apu.hpp>
 #include <print>
+#include <ostream>
+#include <istream>
+#include <state.hpp>
 
 Bus::Bus(Cartridge& cart, Timer& timer, PPU& ppu, APU& apu)
     : m_Cartridge{cart}
@@ -10,6 +13,23 @@ Bus::Bus(Cartridge& cart, Timer& timer, PPU& ppu, APU& apu)
     , m_PPU{ppu}
     , m_APU{apu}
 {
+}
+
+void Bus::Tick()
+{
+    m_CycleCount += 4;
+
+    m_Timer.Tick(4);  // 4 T-cycles per M-cycle (m_Div increments per T-cycle)
+    if (m_Timer.InterruptRequested())
+        m_IoRegisters[0x0F] |= 0x04;  // Timer interrupt = bit 2
+
+    m_PPU.Tick(4);  // 4 T-cycles per M-cycle
+    if (m_PPU.VBlankInterruptRequested())
+        m_IoRegisters[0x0F] |= 0x01;  // VBlank interrupt = bit 0
+    if (m_PPU.StatInterruptRequested())
+        m_IoRegisters[0x0F] |= 0x02;  // STAT interrupt = bit 1
+
+    m_APU.Tick(4);  // 4 T-cycles per M-cycle
 }
 
 U8 Bus::Read(U16 address) const {
@@ -112,4 +132,22 @@ void Bus::Write(U16 address, U8 value) {
         return;
     }
     m_InterruptEnable = value;
+}
+
+void Bus::SaveState(std::ostream& out) const
+{
+    state::Write(out, m_WorkRam);
+    state::Write(out, m_IoRegisters);
+    state::Write(out, m_HighRam);
+    state::Write(out, m_InterruptEnable);
+    m_Joypad.SaveState(out);
+}
+
+void Bus::LoadState(std::istream& in)
+{
+    state::Read(in, m_WorkRam);
+    state::Read(in, m_IoRegisters);
+    state::Read(in, m_HighRam);
+    state::Read(in, m_InterruptEnable);
+    m_Joypad.LoadState(in);
 }

@@ -1,5 +1,8 @@
 #include <ppu.hpp>
 #include <algorithm>
+#include <ostream>
+#include <istream>
+#include <state.hpp>
 
 PPU::PPU()
 {
@@ -400,4 +403,54 @@ void PPU::DrawScanline()
 U8 PPU::GetColorFromPalette(U8 palette, U8 colorIndex)
 {
     return (palette >> (colorIndex * 2)) & 0x03;
+}
+
+void PPU::SaveState(std::ostream& out) const
+{
+    state::Write(out, m_Cycles);
+    state::Write(out, static_cast<U8>(m_Mode));
+    state::Write(out, m_LCDC);
+    state::Write(out, m_STAT);
+    state::Write(out, m_SCY);
+    state::Write(out, m_SCX);
+    state::Write(out, m_LY);
+    state::Write(out, m_LYC);
+    state::Write(out, m_BGP);
+    state::Write(out, m_OBP0);
+    state::Write(out, m_OBP1);
+    state::Write(out, m_WY);
+    state::Write(out, m_WX);
+    state::Write(out, m_VRAM);
+    state::Write(out, m_OAM);
+    state::Write(out, m_Framebuffer);
+    state::Write(out, m_WindowLine);
+    state::Write(out, m_VBlankInterrupt);
+    state::Write(out, m_StatInterrupt);
+    state::Write(out, m_FrameReady);
+}
+
+void PPU::LoadState(std::istream& in)
+{
+    state::Read(in, m_Cycles);
+    U8 mode;
+    state::Read(in, mode);
+    m_Mode = static_cast<PPUMode>(mode);
+    state::Read(in, m_LCDC);
+    state::Read(in, m_STAT);
+    state::Read(in, m_SCY);
+    state::Read(in, m_SCX);
+    state::Read(in, m_LY);
+    state::Read(in, m_LYC);
+    state::Read(in, m_BGP);
+    state::Read(in, m_OBP0);
+    state::Read(in, m_OBP1);
+    state::Read(in, m_WY);
+    state::Read(in, m_WX);
+    state::Read(in, m_VRAM);
+    state::Read(in, m_OAM);
+    state::Read(in, m_Framebuffer);
+    state::Read(in, m_WindowLine);
+    state::Read(in, m_VBlankInterrupt);
+    state::Read(in, m_StatInterrupt);
+    state::Read(in, m_FrameReady);
 }

@@ -1,7 +1,11 @@
 #include <cartridge.hpp>
 
+#include <ctime>
 #include <fstream>
 #include <format>
+#include <ostream>
+#include <istream>
+#include <state.hpp>
 
 namespace {
     constexpr U16 EntryPointOffset = 0x0100;
@@ -49,8 +53,10 @@ std::expected<Cartridge, std::string> Cartridge::Load(std::string_view path) {
         return std::unexpected(std::format("Failed to read ROM: {}", path));
     }
 
+    cart.m_SavePath = std::filesystem::path(path).replace_extension(".sav");
     cart.ParseHeader();
     cart.InitMBC();
+    cart.LoadSaveRAM();
     return cart;
 }
 
@@ -100,6 +106,26 @@ void Cartridge::InitMBC() {
         case 0x0F: case 0x10: case 0x11: case 0x12: case 0x13: m_MBCType = MBCType::MBC3; break;
         case 0x19: case 0x1A: case 0x1B: case 0x1C: case 0x1D: case 0x1E: m_MBCType = MBCType::MBC5; break;
         default: m_MBCType = MBCType::None; break;
+    }
+
+    switch (m_Header.CartridgeType) {
+        case 0x03:                  // MBC1+RAM+BATTERY
+        case 0x06:                  // MBC2+BATTERY
+        case 0x09:                  // ROM+RAM+BATTERY
+        case 0x0D:                  // MMM01+RAM+BATTERY
+        case 0x0F: case 0x10:      // MBC3+TIMER+BATTERY, MBC3+TIMER+RAM+BATTERY
+        case 0x13:                  // MBC3+RAM+BATTERY
+        case 0x1B: case 0x1E:      // MBC5+RAM+BATTERY, MBC5+RUMBLE+RAM+BATTERY
+            m_HasBattery = true;
+            break;
+        default:
+            m_HasBattery = false;
+            break;
+    }
+
+    m_HasRTC = (m_Header.CartridgeType == 0x0F || m_Header.CartridgeType == 0x10);
+    if (m_HasRTC) {
+        m_RTCBaseTimestamp = std::time(nullptr);
     }
 
     Size ramSize = 0;
@@ -198,7 +224,11 @@ void Cartridge::Write(U16 address, U8 value) {
             m_RamBank = value;
         }
         else if (address <= 0x7FFF) {
-            // Latch Clock Data (not implemented - RTC)
+            if (m_HasRTC && m_RTCLatchPrev == 0x00 && value == 0x01) {
+                UpdateRTCRegisters();
+                m_LatchedRTC = m_RTC;
+            }
+            m_RTCLatchPrev = value;
         }
     }
     else if (m_MBCType == MBCType::MBC5) {
@@ -226,9 +256,16 @@ U8 Cartridge::ReadRAM(U16 address) const {
         return 0xFF;
     }
 
-    // MBC3 RTC registers (0x08-0x0C) - not implemented, return 0
     if (m_MBCType == MBCType::MBC3 && m_RamBank >= 0x08 && m_RamBank <= 0x0C) {
-        return 0x00;
+        if (!m_HasRTC) return 0xFF;
+        switch (m_RamBank) {
+            case 0x08: return m_LatchedRTC.Seconds;
+            case 0x09: return m_LatchedRTC.Minutes;
+            case 0x0A: return m_LatchedRTC.Hours;
+            case 0x0B: return m_LatchedRTC.DaysLow;
+            case 0x0C: return m_LatchedRTC.DaysHigh;
+            default:   return 0xFF;
+        }
     }
 
     U32 offset = address - 0xA000;
@@ -265,8 +302,19 @@ void Cartridge::WriteRAM(U16 address, U8 value) {
         return;
     }
 
-    // MBC3 RTC registers (0x08-0x0C) - not implemented
     if (m_MBCType == MBCType::MBC3 && m_RamBank >= 0x08 && m_RamBank <= 0x0C) {
+        if (!m_HasRTC) return;
+        // Sync before writing so we don't lose elapsed time
+        UpdateRTCRegisters();
+        switch (m_RamBank) {
+            case 0x08: m_RTC.Seconds = value & 0x3F; break;
+            case 0x09: m_RTC.Minutes = value & 0x3F; break;
+            case 0x0A: m_RTC.Hours = value & 0x1F; break;
+            case 0x0B: m_RTC.DaysLow = value; break;
+            case 0x0C: m_RTC.DaysHigh = value & 0xC1; break;
+        }
+        // Reset base timestamp to now with current register values
+        m_RTCBaseTimestamp = std::time(nullptr);
         return;
     }
 
@@ -298,6 +346,46 @@ void Cartridge::WriteRAM(U16 address, U8 value) {
     }
 }
 
+void Cartridge::UpdateRTCRegisters() {
+    if (!m_HasRTC) return;
+
+    // If halted (bit 6 of DaysHigh), don't advance
+    if (m_RTC.DaysHigh & 0x40) return;
+
+    S64 now = std::time(nullptr);
+    S64 elapsed = now - m_RTCBaseTimestamp;
+    if (elapsed <= 0) return;
+
+    m_RTCBaseTimestamp = now;
+
+    // Convert current registers to total seconds
+    U16 days = (static_cast<U16>(m_RTC.DaysHigh & 0x01) << 8) | m_RTC.DaysLow;
+    S64 totalSeconds = static_cast<S64>(days) * 86400
+                     + static_cast<S64>(m_RTC.Hours) * 3600
+                     + static_cast<S64>(m_RTC.Minutes) * 60
+                     + m_RTC.Seconds
+                     + elapsed;
+
+    m_RTC.Seconds = static_cast<U8>(totalSeconds % 60);
+    totalSeconds /= 60;
+    m_RTC.Minutes = static_cast<U8>(totalSeconds % 60);
+    totalSeconds /= 60;
+    m_RTC.Hours = static_cast<U8>(totalSeconds % 24);
+    totalSeconds /= 24;
+
+    days = static_cast<U16>(totalSeconds);
+    m_RTC.DaysLow = static_cast<U8>(days & 0xFF);
+    m_RTC.DaysHigh = (m_RTC.DaysHigh & 0xC0) | ((days >> 8) & 0x01);
+
+    // Day counter overflow (>511 days)
+    if (days > 511) {
+        m_RTC.DaysHigh |= 0x80;  // Set carry flag
+        days &= 0x1FF;
+        m_RTC.DaysLow = static_cast<U8>(days & 0xFF);
+        m_RTC.DaysHigh = (m_RTC.DaysHigh & 0xC0) | ((days >> 8) & 0x01);
+    }
+}
+
 bool Cartridge::ValidateLogo() const {
     return m_Header.NintendoLogo == ValidNintendoLogo;
 }
@@ -308,4 +396,128 @@ bool Cartridge::ValidateHeaderChecksum() const {
         checksum = checksum - m_Data[address] - 1;
     }
     return checksum == m_Header.HeaderChecksum;
+}
+
+void Cartridge::LoadSaveRAM() {
+    if (!m_HasBattery) return;
+
+    std::ifstream file{m_SavePath, std::ios::binary};
+    if (!file) return;
+
+    file.seekg(0, std::ios::end);
+    const auto fileSize = static_cast<Size>(file.tellg());
+    file.seekg(0, std::ios::beg);
+
+    Size expectedSize = m_RAM.size() + (m_HasRTC ? 48 : 0);
+    if (fileSize != expectedSize && fileSize != m_RAM.size()) return;
+
+    if (!m_RAM.empty()) {
+        file.read(reinterpret_cast<char*>(m_RAM.data()), static_cast<std::streamsize>(m_RAM.size()));
+    }
+
+    // Load RTC state (VBA-M format: 5×4 current + 5×4 latched + 8 timestamp = 48 bytes)
+    if (m_HasRTC && fileSize >= m_RAM.size() + 48) {
+        auto readU32 = [&]() -> U32 {
+            U32 v = 0;
+            file.read(reinterpret_cast<char*>(&v), 4);
+            return v;
+        };
+
+        m_RTC.Seconds  = static_cast<U8>(readU32());
+        m_RTC.Minutes  = static_cast<U8>(readU32());
+        m_RTC.Hours    = static_cast<U8>(readU32());
+        m_RTC.DaysLow  = static_cast<U8>(readU32());
+        m_RTC.DaysHigh = static_cast<U8>(readU32());
+
+        m_LatchedRTC.Seconds  = static_cast<U8>(readU32());
+        m_LatchedRTC.Minutes  = static_cast<U8>(readU32());
+        m_LatchedRTC.Hours    = static_cast<U8>(readU32());
+        m_LatchedRTC.DaysLow  = static_cast<U8>(readU32());
+        m_LatchedRTC.DaysHigh = static_cast<U8>(readU32());
+
+        S64 savedTimestamp = 0;
+        file.read(reinterpret_cast<char*>(&savedTimestamp), 8);
+        m_RTCBaseTimestamp = savedTimestamp;
+    }
+}
+
+void Cartridge::SaveRAM() const {
+    if (!m_HasBattery || (m_RAM.empty() && !m_HasRTC)) return;
+
+    std::ofstream file{m_SavePath, std::ios::binary};
+    if (!file) return;
+
+    if (!m_RAM.empty()) {
+        file.write(reinterpret_cast<const char*>(m_RAM.data()), static_cast<std::streamsize>(m_RAM.size()));
+    }
+
+    // Save RTC state (VBA-M format)
+    if (m_HasRTC) {
+        auto writeU32 = [&](U32 v) {
+            file.write(reinterpret_cast<const char*>(&v), 4);
+        };
+
+        writeU32(m_RTC.Seconds);
+        writeU32(m_RTC.Minutes);
+        writeU32(m_RTC.Hours);
+        writeU32(m_RTC.DaysLow);
+        writeU32(m_RTC.DaysHigh);
+
+        writeU32(m_LatchedRTC.Seconds);
+        writeU32(m_LatchedRTC.Minutes);
+        writeU32(m_LatchedRTC.Hours);
+        writeU32(m_LatchedRTC.DaysLow);
+        writeU32(m_LatchedRTC.DaysHigh);
+
+        S64 timestamp = std::time(nullptr);
+        file.write(reinterpret_cast<const char*>(&timestamp), 8);
+    }
+}
+
+void Cartridge::SaveState(std::ostream& out) const {
+    state::Write(out, m_RomBank);
+    state::Write(out, m_RamBank);
+    state::Write(out, m_RamEnabled);
+    state::Write(out, m_BankingMode);
+    state::Write(out, m_RAM);
+
+    if (m_HasRTC) {
+        state::Write(out, m_RTC.Seconds);
+        state::Write(out, m_RTC.Minutes);
+        state::Write(out, m_RTC.Hours);
+        state::Write(out, m_RTC.DaysLow);
+        state::Write(out, m_RTC.DaysHigh);
+        state::Write(out, m_LatchedRTC.Seconds);
+        state::Write(out, m_LatchedRTC.Minutes);
+        state::Write(out, m_LatchedRTC.Hours);
+        state::Write(out, m_LatchedRTC.DaysLow);
+        state::Write(out, m_LatchedRTC.DaysHigh);
+        state::Write(out, m_RTCBaseTimestamp);
+        state::Write(out, m_RTCLatched);
+        state::Write(out, m_RTCLatchPrev);
+    }
+}
+
+void Cartridge::LoadState(std::istream& in) {
+    state::Read(in, m_RomBank);
+    state::Read(in, m_RamBank);
+    state::Read(in, m_RamEnabled);
+    state::Read(in, m_BankingMode);
+    state::Read(in, m_RAM);
+
+    if (m_HasRTC) {
+        state::Read(in, m_RTC.Seconds);
+        state::Read(in, m_RTC.Minutes);
+        state::Read(in, m_RTC.Hours);
+        state::Read(in, m_RTC.DaysLow);
+        state::Read(in, m_RTC.DaysHigh);
+        state::Read(in, m_LatchedRTC.Seconds);
+        state::Read(in, m_LatchedRTC.Minutes);
+        state::Read(in, m_LatchedRTC.Hours);
+        state::Read(in, m_LatchedRTC.DaysLow);
+        state::Read(in, m_LatchedRTC.DaysHigh);
+        state::Read(in, m_RTCBaseTimestamp);
+        state::Read(in, m_RTCLatched);
+        state::Read(in, m_RTCLatchPrev);
+    }
 }

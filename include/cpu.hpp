@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iosfwd>
 #include <types.hpp>
 #include <bus.hpp>
 
@@ -19,12 +20,15 @@ class CPU {
 public:
     explicit CPU(Bus& bus);
 
-    U8 Step();
+    void Step();
 
     [[nodiscard]] bool GetFlag(Flag flag) const;
     void SetFlag(Flag flag, bool value);
 
     void DebugPrint() const;
+
+    void SaveState(std::ostream& out) const;
+    void LoadState(std::istream& in);
 
     union { U16 AF; struct { U8 Flags; U8 A; }; };
     union { U16 BC; struct { U8 C; U8 B; }; };
@@ -40,6 +44,9 @@ private:
     bool m_Halted;  // CPU is halted, waiting for interrupt
     bool m_HaltBug; // HALT bug: next opcode byte is read twice (PC not incremented)
 
+    void Tick();                              // 1 M-cycle internal delay
+    U8 BusRead(U16 address);                  // Read + tick (1 M-cycle)
+    void BusWrite(U16 address, U8 value);     // Write + tick (1 M-cycle)
     U8 Fetch();
     U16 Fetch16();
 
@@ -60,7 +67,7 @@ private:
     void SetReg16(U8 index, U16 value);
     U16& GetReg16Ref(U8 index);
     bool CheckCondition(U8 cc) const;
-    U8 ExecuteCB();
+    void ExecuteCB();
 };
 
 #ifdef _MSC_VER
