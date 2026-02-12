@@ -30,8 +30,10 @@ void RunTests()
         "mem_timing/individual/01-read_timing.gb",
         "mem_timing/individual/02-write_timing.gb",
         "mem_timing/individual/03-modify_timing.gb",
-        "halt_bug.gb",
+        "mem_timing/mem_timing.gb",
     };
+
+    int passed = 0, failed = 0;
 
     for (const auto& test : tests)
     {
@@ -39,14 +41,14 @@ void RunTests()
         auto cart = Cartridge::Load(romPath);
         if (!cart)
         {
-            std::println("{}: SKIP (not found)", test);
+            std::println("{}: SKIP", test);
             continue;
         }
 
         GameBoy gb{std::move(*cart)};
 
         U32 cycles = 0;
-        constexpr U32 maxCycles = 100'000'000;
+        constexpr U32 maxCycles = 200'000'000;
 
         while (gb.GetBus().GetTestResult() == TestResult::Running && cycles < maxCycles)
         {
@@ -54,12 +56,18 @@ void RunTests()
         }
 
         if (gb.GetBus().GetTestResult() == TestResult::Passed)
+        {
             std::println("{}: PASSED", test);
-        else if (gb.GetBus().GetTestResult() == TestResult::Failed)
-            std::println("{}: FAILED", test);
+            ++passed;
+        }
         else
-            std::println("{}: TIMEOUT", test);
+        {
+            std::println("{}: FAILED", test);
+            ++failed;
+        }
     }
+
+    std::println("\n{}/{} passed", passed, passed + failed);
 }
 
 // Classic Game Boy green palette

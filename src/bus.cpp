@@ -57,6 +57,7 @@ U8 Bus::Read(U16 address) const {
     }
     if (address <= 0xFF7F) {
         if (address == 0xFF00) return m_Joypad.Read();
+        if (address == 0xFF0F) return m_IoRegisters[0x0F] | 0xE0;  // IF: bits 5-7 always read as 1
         if (auto v = m_Timer.Read(address)) return *v;
         if (auto v = m_PPU.Read(address)) return *v;
         if (auto v = m_APU.Read(address)) return *v;

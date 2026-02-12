@@ -53,10 +53,14 @@ void CPU::Step()
         // Fall through to EI delay check and interrupt dispatch
     }
 
+    // Sample effective IME before processing EI delay (matches hardware:
+    // interrupt dispatch uses the IME value from before EI's toggle)
+    const bool effectiveIME = IME;
+
     if (m_EIDelay > 0 && --m_EIDelay == 0)
         IME = true;
 
-    if (IME) {
+    if (effectiveIME) {
         const U8 IF = m_Bus.ReadIF();
         const U8 IE = m_Bus.ReadIE();
 
@@ -188,10 +192,14 @@ void CPU::Step()
         Flags = (Flags & 0x90) ^ 0x10;
         return;
     case 0x76: // HALT (1M: fetch)
-        if (!IME && (m_Bus.ReadIF() & m_Bus.ReadIE() & 0x1F))
-            m_HaltBug = true;
-        else
-            m_Halted = true;
+        if (m_Bus.ReadIF() & m_Bus.ReadIE() & 0x1F) {
+            if (IME)
+                --PC;           // PC back to HALT; interrupt dispatch will push this as return address
+            else
+                m_HaltBug = true;  // Halt bug: IME=0, next byte read twice
+        } else {
+            m_Halted = true;    // No interrupt pending: enter halt mode
+        }
         return;
     case 0xC3: // JP a16 (4M: fetch + fetch lo + fetch hi + internal)
         {
@@ -291,7 +299,7 @@ void CPU::Step()
         }
         return;
     case 0xFB: // EI (1M: fetch)
-        m_EIDelay = 2;
+        m_EIDelay = 1;
         return;
     default:
         // LD r,r': opcodes 0x40-0x7F (except 0x76 = HALT)

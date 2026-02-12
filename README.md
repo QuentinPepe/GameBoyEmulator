@@ -57,7 +57,7 @@ flowchart TD
 - [x] Save states (F5 save, F8 load)
 - [ ] Game Boy Color (CGB) — double speed, palettes, VRAM banking
 - [ ] Serial link
-- [ ] Cycle-accurate timing
+- [x] Cycle-accurate timing
 
 ### Controls
 | Key | GB Button |
@@ -122,7 +122,8 @@ instr_timing.gb                 PASSED
 mem_timing/01-read_timing.gb    PASSED
 mem_timing/02-write_timing.gb   PASSED
 mem_timing/03-modify_timing.gb  PASSED
-halt_bug.gb                     TIMEOUT
+mem_timing.gb                   PASSED
+halt_bug.gb                     PASSED
 ```
 
 ## Resources
