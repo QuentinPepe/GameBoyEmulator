@@ -2,13 +2,19 @@
 
 Multi-system emulator written in C++23. Runs on Windows, Linux and Steam Deck.
 
-## Supported Systems
+## Systems
 
-### Game Boy / Game Boy Color
+| System | Status |
+|--------|--------|
+| Game Boy / Game Boy Color | Playable |
+| Game Boy Advance | In progress |
+| PlayStation | Planned |
+
+## Game Boy / Game Boy Color
 
 Full-featured Game Boy and Game Boy Color emulator.
 
-#### Architecture
+### Architecture
 
 ```mermaid
 flowchart TD
@@ -28,9 +34,7 @@ flowchart TD
     SDL2 -.->|Input| Joypad
 ```
 
-`GameBoy::Step()` calls `CPU::Step()`, then ticks Timer, PPU and APU. Interrupts raised by Timer/PPU are dispatched by the CPU on the next step.
-
-#### Features
+### Features
 
 - Full SM83 CPU (all instructions + CB prefix)
 - PPU with background, window and sprites
@@ -41,13 +45,17 @@ flowchart TD
 - Battery-backed RAM (game saves)
 - RTC (Real Time Clock) for MBC3
 - Save states (F5 save, F8 load)
-- Game Boy Color (CGB) — double speed, color palettes, VRAM/WRAM banking, HDMA
+- Game Boy Color — double speed, color palettes, VRAM/WRAM banking, HDMA
 - Serial link
 - Cycle-accurate timing
 
-#### Controls
+## Game Boy Advance
 
-##### Keyboard
+ARM7TDMI-based emulator, in development. CPU, memory map, PPU and cartridge skeletons are in place.
+
+## Controls
+
+### Keyboard
 | Key | Action |
 |-----|--------|
 | Arrow keys | D-Pad |
@@ -60,7 +68,7 @@ flowchart TD
 | F11 | Toggle fullscreen |
 | Escape | Quit |
 
-##### Gamepad
+### Gamepad
 | Button | Action |
 |--------|--------|
 | D-Pad | D-Pad |
@@ -75,40 +83,32 @@ flowchart TD
 ## Project Structure
 
 ```
-common/           Shared code (types, ROM selector, main entry point)
-gameboy/          Game Boy emulator
-ps1/              PlayStation (planned)
+common/                     Shared code (types, ROM/system selector, entry point)
+cores/
+  gameboy/                  Game Boy / GBC emulator
+  gameboy-advance/          GBA emulator (in progress)
+  playstation1/             PlayStation (planned)
+roms/
+  gameboy/                  .gb / .gbc ROMs
+  gameboy-advance/          .gba ROMs
+  playstation1/             .bin / .cue / .iso
 ```
 
 ## Usage
 
 ```bash
-Phosphor game.gb              # Launch a Game Boy ROM
-Phosphor roms/                # Browse ROMs in a directory
+Phosphor                        # System selector -> ROM selector
+Phosphor game.gb                # Launch a Game Boy ROM directly
+Phosphor game.gba               # Launch a GBA ROM directly
 Phosphor --fullscreen game.gbc  # Launch in fullscreen
-Phosphor --test               # Run Blargg test suite
+Phosphor --test                 # Run Blargg test suite
 ```
-
-The emulator is detected automatically from the file extension (`.gb`/`.gbc` for Game Boy).
 
 ## Prerequisites
 
 - CMake 3.20+
 - C++23 compiler (MSVC 2022, GCC 13+, Clang 17+)
 - vcpkg
-
-## Setup
-
-```bash
-# Clone vcpkg (if not already done)
-git clone https://github.com/Microsoft/vcpkg.git
-cd vcpkg && bootstrap-vcpkg.bat  # Windows
-cd vcpkg && ./bootstrap-vcpkg.sh # Linux/Mac
-
-# Set VCPKG_ROOT
-# Windows: setx VCPKG_ROOT "C:\path\to\vcpkg"
-# Linux/Mac: export VCPKG_ROOT="/path/to/vcpkg"
-```
 
 ## Build
 
@@ -117,30 +117,38 @@ cmake --preset default
 cmake --build build/debug
 ```
 
-## Blargg Tests
+Release build:
+```bash
+cmake --preset release
+cmake --build build/release
+```
+
+## Blargg Tests (Game Boy)
+
+All 16 tests passing:
 
 ```
-cpu_instrs/01-special.gb        PASSED
-cpu_instrs/02-interrupts.gb     PASSED
-cpu_instrs/03-op sp,hl.gb       PASSED
-cpu_instrs/04-op r,imm.gb       PASSED
-cpu_instrs/05-op rp.gb          PASSED
-cpu_instrs/06-ld r,r.gb         PASSED
+cpu_instrs/01-special           PASSED
+cpu_instrs/02-interrupts        PASSED
+cpu_instrs/03-op sp,hl          PASSED
+cpu_instrs/04-op r,imm          PASSED
+cpu_instrs/05-op rp             PASSED
+cpu_instrs/06-ld r,r            PASSED
 cpu_instrs/07-jr,jp,call,ret    PASSED
-cpu_instrs/08-misc instrs.gb    PASSED
-cpu_instrs/09-op r,r.gb         PASSED
-cpu_instrs/10-bit ops.gb        PASSED
-cpu_instrs/11-op a,(hl).gb      PASSED
-instr_timing.gb                 PASSED
-mem_timing/01-read_timing.gb    PASSED
-mem_timing/02-write_timing.gb   PASSED
-mem_timing/03-modify_timing.gb  PASSED
-mem_timing.gb                   PASSED
-halt_bug.gb                     PASSED
+cpu_instrs/08-misc instrs       PASSED
+cpu_instrs/09-op r,r            PASSED
+cpu_instrs/10-bit ops           PASSED
+cpu_instrs/11-op a,(hl)         PASSED
+instr_timing                    PASSED
+mem_timing/01-read_timing       PASSED
+mem_timing/02-write_timing      PASSED
+mem_timing/03-modify_timing     PASSED
+mem_timing                      PASSED
 ```
 
 ## Resources
 
 - [Pan Docs](https://gbdev.io/pandocs/) — Game Boy technical documentation
-- [Opcodes](https://gbdev.io/gb-opcodes/optables/) — Interactive opcode table
+- [GBATEK](https://problemkaputt.de/gbatek.htm) — GBA technical documentation
+- [Opcodes](https://gbdev.io/gb-opcodes/optables/) — GB interactive opcode table
 - [Homebrew Hub](https://hh.gbdev.io/) — Legal homebrew ROMs

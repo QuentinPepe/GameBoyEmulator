@@ -2,7 +2,9 @@
 
 #include <iosfwd>
 #include <types.hpp>
-#include <bus.hpp>
+#include <gb_bus.hpp>
+
+namespace gb {
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -79,3 +81,5 @@ private:
 #elif defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
+
+} // namespace gb

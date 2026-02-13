@@ -93,7 +93,8 @@ bool HasExtension(const std::string& ext, EmuSystem system)
     switch (system)
     {
     case EmuSystem::GameBoy: return ext == ".gb" || ext == ".gbc";
-    case EmuSystem::PS1:     return ext == ".bin" || ext == ".cue" || ext == ".iso";
+    case EmuSystem::GameBoyAdvance: return ext == ".gba";
+    case EmuSystem::PlayStation1:   return ext == ".bin" || ext == ".cue" || ext == ".iso";
     }
     return false;
 }
@@ -105,8 +106,9 @@ struct SystemInfo {
 };
 
 constexpr SystemInfo Systems[] = {
-    { "Game Boy",    ".gb .gbc",    true  },
-    { "PlayStation", "coming soon", false },
+    { "Game Boy",         ".gb .gbc",    true  },
+    { "Game Boy Advance", ".gba",        true  },
+    { "PlayStation",      "coming soon", false },
 };
 constexpr S32 SystemCount = sizeof(Systems) / sizeof(Systems[0]);
 
@@ -353,6 +355,37 @@ std::optional<std::filesystem::path> SelectRom(
         }
 
         DrawText(renderer, LeftPad, FooterY, roms[selected].Filename.c_str(), ColorDim, maxChars);
+
+        SDL_RenderPresent(renderer);
+        SDL_Delay(16);
+    }
+}
+
+void ShowEmptyRomList(SDL_Renderer* renderer, const char* header, const char* romDir)
+{
+    SDL_RenderSetLogicalSize(renderer, LogicalW, LogicalH);
+
+    for (;;)
+    {
+        SDL_Event event;
+        while (SDL_PollEvent(&event))
+        {
+            if (event.type == SDL_QUIT) return;
+            if (event.type == SDL_KEYDOWN) return;
+            if (event.type == SDL_CONTROLLERBUTTONDOWN) return;
+        }
+
+        SetBgColor(renderer);
+        SDL_RenderClear(renderer);
+
+        DrawText(renderer, LeftPad, HeaderY, header, ColorHeader);
+        DrawText(renderer, LogicalW - LeftPad - 6 * 6, HeaderY, "0 ROMs", ColorDim);
+
+        SetSepColor(renderer);
+        SDL_RenderDrawLine(renderer, LeftPad, HeaderY + 12, LogicalW - LeftPad, HeaderY + 12);
+
+        DrawText(renderer, LeftPad, ListY, "No ROMs found", ColorDim);
+        DrawText(renderer, LeftPad, ListY + EntryHeight, romDir, ColorDim);
 
         SDL_RenderPresent(renderer);
         SDL_Delay(16);

@@ -1,10 +1,12 @@
-#include <bus.hpp>
-#include <timer.hpp>
-#include <ppu.hpp>
-#include <apu.hpp>
+#include <gb_bus.hpp>
+#include <gb_timer.hpp>
+#include <gb_ppu.hpp>
+#include <gb_apu.hpp>
 #include <ostream>
 #include <istream>
 #include <state.hpp>
+
+namespace gb {
 
 Bus::Bus(Cartridge& cart, Timer& timer, PPU& ppu, APU& apu, bool cgbMode)
     : m_Cartridge{cart}
@@ -287,3 +289,5 @@ void Bus::LoadState(std::istream& in)
     state::Read(in, m_SerialTransferring);
     state::Read(in, m_SerialCycles);
 }
+
+} // namespace gb

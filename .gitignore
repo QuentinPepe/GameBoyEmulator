@@ -7,10 +7,10 @@ CMakeUserPresets.json
 *.rom
 *.gb
 *.gbc
+*.gba
 *.bin
 *.cue
 *.iso
 *.zip
 roms/
 test-roms/
-logs/

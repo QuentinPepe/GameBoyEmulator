@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-enum class EmuSystem { GameBoy, PS1 };
+enum class EmuSystem { GameBoy, GameBoyAdvance, PlayStation1 };
 
 struct RomEntry {
     std::filesystem::path Path;
@@ -22,3 +22,5 @@ std::optional<std::filesystem::path> SelectRom(
     SDL_Renderer* renderer,
     const std::vector<RomEntry>& roms,
     const char* header = "PHOSPHOR");
+
+void ShowEmptyRomList(SDL_Renderer* renderer, const char* header, const char* romDir);

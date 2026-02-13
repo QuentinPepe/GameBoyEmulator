@@ -1,7 +1,9 @@
-#include <gameboy.hpp>
+#include <gb.hpp>
 #include <fstream>
 #include <print>
 #include <state.hpp>
+
+namespace gb {
 
 GameBoy::GameBoy(Cartridge&& cart)
     : m_Cartridge{std::move(cart)}
@@ -61,3 +63,5 @@ bool GameBoy::LoadState(std::string_view path)
 
     return file.good();
 }
+
+} // namespace gb

@@ -1,7 +1,9 @@
-#include <joypad.hpp>
+#include <gb_joypad.hpp>
 #include <ostream>
 #include <istream>
 #include <state.hpp>
+
+namespace gb {
 
 void Joypad::SaveState(std::ostream& out) const
 {
@@ -14,3 +16,5 @@ void Joypad::LoadState(std::istream& in)
     state::Read(in, m_Select);
     state::Read(in, m_Buttons);
 }
+
+} // namespace gb

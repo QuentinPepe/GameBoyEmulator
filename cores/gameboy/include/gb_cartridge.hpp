@@ -11,6 +11,8 @@
 
 #include <types.hpp>
 
+namespace gb {
+
 struct RTCRegisters {
     U8 Seconds{0};   // 0x08: 0-59
     U8 Minutes{0};   // 0x09: 0-59
@@ -87,3 +89,5 @@ private:
     bool m_RTCLatched{false};
     U8 m_RTCLatchPrev{0xFF};      // Previous latch write value (0x00 → 0x01 triggers latch)
 };
+
+} // namespace gb

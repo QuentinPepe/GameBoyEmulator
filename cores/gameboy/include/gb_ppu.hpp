@@ -5,6 +5,8 @@
 #include <optional>
 #include <types.hpp>
 
+namespace gb {
+
 enum class PPUMode : U8 {
     HBlank = 0,   // Mode 0: Horizontal blank (204 cycles)
     VBlank = 1,   // Mode 1: Vertical blank (4560 cycles total, 10 lines)
@@ -14,13 +16,13 @@ enum class PPUMode : U8 {
 
 class PPU {
 public:
-    static constexpr int ScreenWidth = 160;
-    static constexpr int ScreenHeight = 144;
-    static constexpr int CyclesPerScanline = 456;
-    static constexpr int OAMScanCycles = 80;
-    static constexpr int DrawingCycles = 172;
-    static constexpr int HBlankCycles = 204;
-    static constexpr int VBlankLines = 10;
+    static constexpr S32 ScreenWidth = 160;
+    static constexpr S32 ScreenHeight = 144;
+    static constexpr S32 CyclesPerScanline = 456;
+    static constexpr S32 OAMScanCycles = 80;
+    static constexpr S32 DrawingCycles = 172;
+    static constexpr S32 HBlankCycles = 204;
+    static constexpr S32 VBlankLines = 10;
 
     explicit PPU(bool cgbMode = false);
 
@@ -103,3 +105,5 @@ private:
     [[nodiscard]] static U8 GetColorFromPalette(U8 palette, U8 colorIndex);
     [[nodiscard]] static U32 CgbColorToARGB(U8 low, U8 high);
 };
+
+} // namespace gb

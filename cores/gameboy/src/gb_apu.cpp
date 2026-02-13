@@ -1,7 +1,9 @@
-#include <apu.hpp>
+#include <gb_apu.hpp>
 #include <ostream>
 #include <istream>
 #include <state.hpp>
+
+namespace gb {
 
 namespace {
     // Duty cycle patterns for square waves
@@ -716,3 +718,5 @@ void APU::LoadState(std::istream& in)
 
     m_SampleIndex = 0;
 }
+
+} // namespace gb

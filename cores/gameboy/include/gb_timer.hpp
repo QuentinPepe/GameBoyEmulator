@@ -4,6 +4,8 @@
 #include <optional>
 #include <types.hpp>
 
+namespace gb {
+
 class Timer {
 public:
     Timer() = default;
@@ -37,3 +39,5 @@ private:
     //   11 -> bit 7  (every 64 M-cycles, 16384 Hz)
     [[nodiscard]] U8 GetTimerBit() const;
 };
+
+} // namespace gb

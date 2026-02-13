@@ -28,10 +28,10 @@ file(GLOB_RECURSE COMMON_HDR CONFIGURE_DEPENDS
 )
 
 file(GLOB_RECURSE GAMEBOY_SRC CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/gameboy/src/*.cpp"
+    "${CMAKE_SOURCE_DIR}/cores/gameboy/src/*.cpp"
 )
 file(GLOB_RECURSE GAMEBOY_HDR CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/gameboy/include/*.hpp"
+    "${CMAKE_SOURCE_DIR}/cores/gameboy/include/*.hpp"
 )
 
 add_executable(${PROJECT_NAME}
@@ -41,7 +41,7 @@ add_executable(${PROJECT_NAME}
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/common/include
-    ${CMAKE_SOURCE_DIR}/gameboy/include
+    ${CMAKE_SOURCE_DIR}/cores/gameboy/include
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE

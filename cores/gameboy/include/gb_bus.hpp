@@ -5,8 +5,10 @@
 #include <string>
 
 #include <types.hpp>
-#include <cartridge.hpp>
-#include <joypad.hpp>
+#include <gb_cartridge.hpp>
+#include <gb_joypad.hpp>
+
+namespace gb {
 
 class Timer;
 class PPU;
@@ -74,3 +76,5 @@ private:
     std::string m_SerialBuffer;
     TestResult m_TestResult{TestResult::Running};
 };
+
+} // namespace gb

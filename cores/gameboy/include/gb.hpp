@@ -1,12 +1,14 @@
 #pragma once
 
 #include <string_view>
-#include <cartridge.hpp>
-#include <timer.hpp>
-#include <ppu.hpp>
-#include <apu.hpp>
-#include <bus.hpp>
-#include <cpu.hpp>
+#include <gb_cartridge.hpp>
+#include <gb_timer.hpp>
+#include <gb_ppu.hpp>
+#include <gb_apu.hpp>
+#include <gb_bus.hpp>
+#include <gb_cpu.hpp>
+
+namespace gb {
 
 class GameBoy {
 public:
@@ -35,3 +37,5 @@ private:
     Bus m_Bus;
     CPU m_CPU;
 };
+
+} // namespace gb

@@ -5,12 +5,12 @@
 #include <filesystem>
 #include <vector>
 
-#include <gameboy.hpp>
-#include <ppu.hpp>
-#include <apu.hpp>
-#include <joypad.hpp>
+#include <gb.hpp>
+#include <gb_ppu.hpp>
+#include <gb_apu.hpp>
+#include <gb_joypad.hpp>
 
-namespace gameboy {
+namespace gb {
 
 void RunTests(const std::string& testRomsDir)
 {
@@ -33,7 +33,7 @@ void RunTests(const std::string& testRomsDir)
         "mem_timing/mem_timing.gb",
     };
 
-    int passed = 0, failed = 0;
+    S32 passed = 0, failed = 0;
 
     for (const auto& test : tests)
     {
@@ -70,11 +70,11 @@ void RunTests(const std::string& testRomsDir)
     std::println("\n{}/{} passed", passed, passed + failed);
 }
 
-constexpr int Scale = 4;
-constexpr int WindowWidth = PPU::ScreenWidth * Scale;
-constexpr int WindowHeight = PPU::ScreenHeight * Scale;
+constexpr S32 Scale = 4;
+constexpr S32 WindowWidth = PPU::ScreenWidth * Scale;
+constexpr S32 WindowHeight = PPU::ScreenHeight * Scale;
 
-int Run(const std::string& romPath, bool fullscreen)
+S32 Run(const std::string& romPath, bool fullscreen)
 {
     auto cart = Cartridge::Load(romPath);
     if (!cart)
@@ -165,7 +165,7 @@ int Run(const std::string& romPath, bool fullscreen)
 
     // Open first available game controller
     SDL_GameController* controller = nullptr;
-    for (int i = 0; i < SDL_NumJoysticks(); i++)
+    for (S32 i = 0; i < SDL_NumJoysticks(); i++)
     {
         if (SDL_IsGameController(i))
         {
@@ -333,4 +333,4 @@ int Run(const std::string& romPath, bool fullscreen)
     return 0;
 }
 
-} // namespace gameboy
+} // namespace gb

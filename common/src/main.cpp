@@ -1,5 +1,6 @@
 #include <SDL.h>
 #include <print>
+#include <format>
 #include <filesystem>
 #include <string>
 #include <algorithm>
@@ -16,8 +17,9 @@ static const char* SystemHeader(EmuSystem system)
 {
     switch (system)
     {
-    case EmuSystem::GameBoy: return "GAME BOY";
-    case EmuSystem::PS1:     return "PLAYSTATION";
+    case EmuSystem::GameBoy:        return "GAME BOY";
+    case EmuSystem::GameBoyAdvance: return "GAME BOY ADVANCE";
+    case EmuSystem::PlayStation1:   return "PLAYSTATION";
     }
     return "PHOSPHOR";
 }
@@ -26,15 +28,22 @@ static std::filesystem::path SystemRomDir(EmuSystem system)
 {
     switch (system)
     {
-    case EmuSystem::GameBoy: return "roms/gameboy";
-    case EmuSystem::PS1:     return "roms/ps1";
+    case EmuSystem::GameBoy:        return "roms/gameboy";
+    case EmuSystem::GameBoyAdvance: return "roms/gameboy-advance";
+    case EmuSystem::PlayStation1:   return "roms/playstation1";
     }
     return "roms";
 }
 
+static bool IsProjectRoot(const std::filesystem::path& dir)
+{
+    return std::filesystem::is_directory(dir / "roms")
+        || std::filesystem::is_directory(dir / "test-roms");
+}
+
 static std::filesystem::path FindProjectRoot()
 {
-    if (std::filesystem::is_directory("roms")) return ".";
+    if (IsProjectRoot(".")) return ".";
 
     char* basePath = SDL_GetBasePath();
     if (basePath)
@@ -42,9 +51,9 @@ static std::filesystem::path FindProjectRoot()
         auto dir = std::filesystem::path(basePath);
         SDL_free(basePath);
 
-        for (int i = 0; i < 5; i++)
+        for (S32 i = 0; i < 5; i++)
         {
-            if (std::filesystem::is_directory(dir / "roms")) return dir;
+            if (IsProjectRoot(dir)) return dir;
             auto parent = dir.parent_path();
             if (parent == dir) break;
             dir = parent;
@@ -62,7 +71,7 @@ int main(int argc, char* argv[])
     bool startFullscreen = false;
     bool runTests = false;
     std::string argPath;
-    for (int i = 1; i < argc; i++)
+    for (S32 i = 1; i < argc; i++)
     {
         std::string arg = argv[i];
         if (arg == "--fullscreen" || arg == "-f")
@@ -76,9 +85,9 @@ int main(int argc, char* argv[])
     if (runTests)
     {
         auto testDir = argPath.empty()
-            ? (std::filesystem::path(SDL_GetBasePath()) / "../../../test-roms").string()
+            ? (FindProjectRoot() / "test-roms/gameboy").string()
             : argPath;
-        gameboy::RunTests(testDir);
+        gb::RunTests(testDir);
         return 0;
     }
 
@@ -93,9 +102,9 @@ int main(int argc, char* argv[])
         auto ext = std::filesystem::path(argPath).extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
-        int result;
+        S32 result;
         if (IsGameBoyRom(ext))
-            result = gameboy::Run(argPath, startFullscreen);
+            result = gb::Run(argPath, startFullscreen);
         else
         {
             std::println(stderr, "Unsupported file: {}", argPath);
@@ -115,7 +124,7 @@ int main(int argc, char* argv[])
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
     if (startFullscreen) SDL_SetWindowFullscreen(w, SDL_WINDOW_FULLSCREEN_DESKTOP);
 
-    int result = 0;
+    S32 result = 0;
     bool launched = false;
 
     while (!launched)
@@ -127,7 +136,7 @@ int main(int argc, char* argv[])
         auto roms = ScanRoms(scanDir, *system);
         if (roms.empty())
         {
-            std::println("No ROMs found in: {}", scanDir.string());
+            ShowEmptyRomList(r, SystemHeader(*system), SystemRomDir(*system).string().c_str());
             continue;
         }
 
@@ -140,7 +149,7 @@ int main(int argc, char* argv[])
         switch (*system)
         {
         case EmuSystem::GameBoy:
-            result = gameboy::Run(selected->string(), startFullscreen);
+            result = gb::Run(selected->string(), startFullscreen);
             break;
         default:
             std::println(stderr, "System not yet implemented");

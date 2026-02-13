@@ -1,8 +1,10 @@
-#include <ppu.hpp>
+#include <gb_ppu.hpp>
 #include <algorithm>
 #include <ostream>
 #include <istream>
 #include <state.hpp>
+
+namespace gb {
 
 PPU::PPU(bool cgbMode)
     : m_CgbMode{cgbMode}
@@ -562,3 +564,5 @@ void PPU::LoadState(std::istream& in)
     state::Read(in, m_BgPaletteRAM);
     state::Read(in, m_ObjPaletteRAM);
 }
+
+} // namespace gb

@@ -3,6 +3,8 @@
 #include <iosfwd>
 #include <types.hpp>
 
+namespace gb {
+
 class Joypad {
 public:
     static constexpr U8 Right  = 0x01;
@@ -53,3 +55,5 @@ private:
     U8 m_Select{0x30};   // Bits 4-5: button group select
     U8 m_Buttons{};
 };
+
+} // namespace gb

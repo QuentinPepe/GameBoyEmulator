@@ -1,4 +1,4 @@
-#include <cartridge.hpp>
+#include <gb_cartridge.hpp>
 
 #include <ctime>
 #include <fstream>
@@ -6,6 +6,8 @@
 #include <ostream>
 #include <istream>
 #include <state.hpp>
+
+namespace gb {
 
 namespace {
     constexpr U16 EntryPointOffset = 0x0100;
@@ -526,3 +528,5 @@ void Cartridge::LoadState(std::istream& in) {
         state::Read(in, m_RTCLatchPrev);
     }
 }
+
+} // namespace gb

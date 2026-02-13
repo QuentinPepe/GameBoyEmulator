@@ -1,8 +1,10 @@
 #include <array>
 #include <ostream>
 #include <istream>
-#include <timer.hpp>
+#include <gb_timer.hpp>
 #include <state.hpp>
+
+namespace gb {
 
 void Timer::Tick(U8 mCycles)
 {
@@ -120,3 +122,5 @@ void Timer::LoadState(std::istream& in)
     state::Read(in, m_TAC);
     state::Read(in, m_InterruptFlag);
 }
+
+} // namespace gb

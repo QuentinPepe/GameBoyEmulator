@@ -5,6 +5,8 @@
 #include <optional>
 #include <types.hpp>
 
+namespace gb {
+
 // Channel 1 has sweep, Channel 2 doesn't
 struct SquareChannel {
     U8 sweep{};         // NR10 (Channel 1 only)
@@ -126,3 +128,5 @@ private:
     std::array<float, AudioBufferSize> m_AudioBuffer{};
     Size m_SampleIndex{};
 };
+
+} // namespace gb

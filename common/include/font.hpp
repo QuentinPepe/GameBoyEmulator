@@ -1,7 +1,7 @@
 #pragma once
 
 #include <array>
-#include <cstdint>
+#include <types.hpp>
 
 // 5x7 bitmap font for ASCII 32-126 (95 characters)
 // Each character is 8 bytes (one per row), MSB = leftmost pixel
@@ -9,14 +9,14 @@
 // Designed for 6px advance (5px glyph + 1px gap)
 namespace font {
 
-constexpr int CharWidth = 8;
-constexpr int CharHeight = 8;
-constexpr int FirstChar = 32;
-constexpr int LastChar = 127;
-constexpr int NumChars = LastChar - FirstChar;
+constexpr S32 CharWidth = 8;
+constexpr S32 CharHeight = 8;
+constexpr S32 FirstChar = 32;
+constexpr S32 LastChar = 127;
+constexpr S32 NumChars = LastChar - FirstChar;
 
 // clang-format off
-constexpr std::array<std::array<uint8_t, 8>, NumChars> Glyphs = {{
+constexpr std::array<std::array<U8, 8>, NumChars> Glyphs = {{
     {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}, // 32 ' '
     {0x20,0x20,0x20,0x20,0x20,0x00,0x20,0x00}, // 33 '!'
     {0x50,0x50,0x50,0x00,0x00,0x00,0x00,0x00}, // 34 '"'

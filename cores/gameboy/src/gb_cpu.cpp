@@ -1,8 +1,10 @@
-#include <cpu.hpp>
+#include <gb_cpu.hpp>
 #include <print>
 #include <ostream>
 #include <istream>
 #include <state.hpp>
+
+namespace gb {
 
 CPU::CPU(Bus& bus, bool cgbMode)
     : m_Bus{bus}
@@ -103,7 +105,7 @@ void CPU::Step()
         {
             m_Bus.PerformSpeedSwitch();
             // Speed switch takes ~2050 M-cycles
-            for (int i = 0; i < 2050; i++)
+            for (S32 i = 0; i < 2050; i++)
                 Tick();
         }
         return;
@@ -884,3 +886,5 @@ void CPU::LoadState(std::istream& in)
     state::Read(in, m_Halted);
     state::Read(in, m_HaltBug);
 }
+
+} // namespace gb
