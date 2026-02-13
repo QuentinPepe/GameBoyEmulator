@@ -309,13 +309,12 @@ S32 Run(const std::string& romPath, bool fullscreen)
         auto& apu = gb.GetAPU();
         if (audioDevice != 0 && apu.GetSampleCount() > 0)
         {
-            U32 queued = SDL_GetQueuedAudioSize(audioDevice);
             constexpr U32 MaxQueueBytes = APU::SampleRate * sizeof(float) / 15;
-            if (queued < MaxQueueBytes)
-            {
-                SDL_QueueAudio(audioDevice, apu.GetAudioBuffer().data(),
-                    static_cast<U32>(apu.GetSampleCount() * sizeof(float)));
-            }
+            while (SDL_GetQueuedAudioSize(audioDevice) > MaxQueueBytes)
+                SDL_Delay(1);
+
+            SDL_QueueAudio(audioDevice, apu.GetAudioBuffer().data(),
+                static_cast<U32>(apu.GetSampleCount() * sizeof(float)));
             apu.ClearBuffer();
         }
     }
