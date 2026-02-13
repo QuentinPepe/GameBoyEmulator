@@ -4,26 +4,35 @@
 #include <algorithm>
 #include <fstream>
 #include <format>
+#include <cstring>
 
 namespace {
 
-// Selector uses 2x Game Boy resolution for readability
 constexpr S32 LogicalW = 320;
 constexpr S32 LogicalH = 288;
 
 constexpr S32 HeaderY = 12;
 constexpr S32 ListY = 36;
 constexpr S32 FooterY = LogicalH - 16;
-constexpr S32 EntryHeight = 12;  // 8px text + 4px gap
+constexpr S32 EntryHeight = 12;
 constexpr S32 LeftPad = 12;
 
-// Colors (ARGB) — high contrast GB-inspired
-constexpr U32 ColorBg       = 0xFF0F380F;  // Dark green background
-constexpr U32 ColorHeader   = 0xFF9BBC0F;  // Bright green for header
-constexpr U32 ColorText     = 0xFF8BAC0F;  // Light green for ROM names
-constexpr U32 ColorDim      = 0xFF306230;  // Dim green for unselected / info
-constexpr U32 ColorSelBg    = 0xFF9BBC0F;  // Bright green selection bar
-constexpr U32 ColorSelText  = 0xFF0F380F;  // Dark text on bright bar
+constexpr U32 ColorBg       = 0xFF0A0A0F;
+constexpr U32 ColorHeader   = 0xFFDA70D6;
+constexpr U32 ColorText     = 0xFFB8A9C9;
+constexpr U32 ColorDim      = 0xFF4A3A5C;
+constexpr U32 ColorSelBg    = 0xFFFF69B4;
+constexpr U32 ColorSelText  = 0xFF0A0A0F;
+
+void SetBgColor(SDL_Renderer* renderer)
+{
+    SDL_SetRenderDrawColor(renderer, 0x0A, 0x0A, 0x0F, 0xFF);
+}
+
+void SetSepColor(SDL_Renderer* renderer)
+{
+    SDL_SetRenderDrawColor(renderer, 0x4A, 0x3A, 0x5C, 0xFF);
+}
 
 void DrawChar(SDL_Renderer* renderer, S32 x, S32 y, char ch, U32 color)
 {
@@ -60,7 +69,7 @@ void DrawText(SDL_Renderer* renderer, S32 x, S32 y, const char* text, U32 color,
     }
 }
 
-std::string ReadRomTitle(const std::filesystem::path& path)
+std::string ReadGBTitle(const std::filesystem::path& path)
 {
     std::ifstream file{path, std::ios::binary};
     if (!file) return {};
@@ -79,9 +88,124 @@ std::string ReadRomTitle(const std::filesystem::path& path)
     return title;
 }
 
+bool HasExtension(const std::string& ext, EmuSystem system)
+{
+    switch (system)
+    {
+    case EmuSystem::GameBoy: return ext == ".gb" || ext == ".gbc";
+    case EmuSystem::PS1:     return ext == ".bin" || ext == ".cue" || ext == ".iso";
+    }
+    return false;
+}
+
+struct SystemInfo {
+    const char* name;
+    const char* detail;
+    bool available;
+};
+
+constexpr SystemInfo Systems[] = {
+    { "Game Boy",    ".gb .gbc",    true  },
+    { "PlayStation", "coming soon", false },
+};
+constexpr S32 SystemCount = sizeof(Systems) / sizeof(Systems[0]);
+
 } // namespace
 
-std::vector<RomEntry> ScanRoms(const std::filesystem::path& dir)
+std::optional<EmuSystem> SelectSystem(SDL_Renderer* renderer)
+{
+    SDL_RenderSetLogicalSize(renderer, LogicalW, LogicalH);
+
+    S32 selected = 0;
+    constexpr S32 SystemEntryHeight = 20;
+
+    for (;;)
+    {
+        SDL_Event event;
+        while (SDL_PollEvent(&event))
+        {
+            if (event.type == SDL_QUIT) return std::nullopt;
+
+            bool up = false, down = false, confirm = false, cancel = false;
+
+            if (event.type == SDL_KEYDOWN)
+            {
+                switch (event.key.keysym.sym)
+                {
+                case SDLK_UP:     up = true; break;
+                case SDLK_DOWN:   down = true; break;
+                case SDLK_RETURN: confirm = true; break;
+                case SDLK_z:      confirm = true; break;
+                case SDLK_ESCAPE: cancel = true; break;
+                default: break;
+                }
+            }
+
+            if (event.type == SDL_CONTROLLERBUTTONDOWN)
+            {
+                switch (event.cbutton.button)
+                {
+                case SDL_CONTROLLER_BUTTON_DPAD_UP:    up = true; break;
+                case SDL_CONTROLLER_BUTTON_DPAD_DOWN:  down = true; break;
+                case SDL_CONTROLLER_BUTTON_A:          confirm = true; break;
+                case SDL_CONTROLLER_BUTTON_B:          cancel = true; break;
+                default: break;
+                }
+            }
+
+            if (cancel) return std::nullopt;
+            if (confirm && Systems[selected].available)
+                return static_cast<EmuSystem>(selected);
+
+            if (up && selected > 0) selected--;
+            if (down && selected < SystemCount - 1) selected++;
+        }
+
+        SetBgColor(renderer);
+        SDL_RenderClear(renderer);
+
+        DrawText(renderer, LeftPad, HeaderY, "PHOSPHOR", ColorHeader);
+
+        SetSepColor(renderer);
+        SDL_RenderDrawLine(renderer, LeftPad, HeaderY + 12, LogicalW - LeftPad, HeaderY + 12);
+
+        for (S32 i = 0; i < SystemCount; i++)
+        {
+            S32 y = ListY + i * SystemEntryHeight;
+            bool isSelected = (i == selected);
+            bool isAvailable = Systems[i].available;
+
+            if (isSelected && isAvailable)
+            {
+                SDL_SetRenderDrawColor(renderer, 0xFF, 0x69, 0xB4, 0xFF);
+                SDL_Rect bar = {LeftPad - 2, y - 2, LogicalW - LeftPad * 2 + 4, EntryHeight};
+                SDL_RenderFillRect(renderer, &bar);
+
+                DrawText(renderer, LeftPad, y, ">", ColorSelText);
+                DrawText(renderer, LeftPad + 10, y, Systems[i].name, ColorSelText);
+
+                S32 detailX = LogicalW - LeftPad - static_cast<S32>(std::strlen(Systems[i].detail)) * 6;
+                DrawText(renderer, detailX, y, Systems[i].detail, ColorSelText);
+            }
+            else
+            {
+                U32 nameColor = isAvailable ? ColorText : ColorDim;
+                if (isSelected) DrawText(renderer, LeftPad, y, ">", ColorDim);
+                DrawText(renderer, LeftPad + 10, y, Systems[i].name, nameColor);
+
+                S32 detailX = LogicalW - LeftPad - static_cast<S32>(std::strlen(Systems[i].detail)) * 6;
+                DrawText(renderer, detailX, y, Systems[i].detail, ColorDim);
+            }
+        }
+
+        DrawText(renderer, LeftPad, FooterY, "Select a system", ColorDim);
+
+        SDL_RenderPresent(renderer);
+        SDL_Delay(16);
+    }
+}
+
+std::vector<RomEntry> ScanRoms(const std::filesystem::path& dir, EmuSystem system)
 {
     std::vector<RomEntry> roms;
 
@@ -93,10 +217,13 @@ std::vector<RomEntry> ScanRoms(const std::filesystem::path& dir)
 
         auto ext = entry.path().extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-        if (ext != ".gb" && ext != ".gbc") continue;
+        if (!HasExtension(ext, system)) continue;
 
-        auto title = ReadRomTitle(entry.path());
-        if (title.empty()) title = entry.path().stem().string();
+        std::string title;
+        if (system == EmuSystem::GameBoy)
+            title = ReadGBTitle(entry.path());
+        if (title.empty())
+            title = entry.path().stem().string();
 
         roms.push_back({
             entry.path(),
@@ -114,11 +241,11 @@ std::vector<RomEntry> ScanRoms(const std::filesystem::path& dir)
 
 std::optional<std::filesystem::path> SelectRom(
     SDL_Renderer* renderer,
-    const std::vector<RomEntry>& roms)
+    const std::vector<RomEntry>& roms,
+    const char* header)
 {
     if (roms.empty()) return std::nullopt;
 
-    // Use higher logical resolution for the selector
     SDL_RenderSetLogicalSize(renderer, LogicalW, LogicalH);
 
     S32 selected = 0;
@@ -178,22 +305,17 @@ std::optional<std::filesystem::path> SelectRom(
             }
         }
 
-        // Render
-        SDL_SetRenderDrawColor(renderer, 0x0F, 0x38, 0x0F, 0xFF);
+        SetBgColor(renderer);
         SDL_RenderClear(renderer);
 
-        // Header
-        DrawText(renderer, LeftPad, HeaderY, "GAMEBOY EMULATOR", ColorHeader);
+        DrawText(renderer, LeftPad, HeaderY, header, ColorHeader);
 
-        // ROM count on the right
         S32 infoX = LogicalW - LeftPad - static_cast<S32>(info.size()) * 6;
         DrawText(renderer, infoX, HeaderY, info.c_str(), ColorDim);
 
-        // Separator line
-        SDL_SetRenderDrawColor(renderer, 0x30, 0x62, 0x30, 0xFF);
+        SetSepColor(renderer);
         SDL_RenderDrawLine(renderer, LeftPad, HeaderY + 12, LogicalW - LeftPad, HeaderY + 12);
 
-        // ROM list
         for (S32 i = 0; i < visibleCount && (scrollOffset + i) < static_cast<S32>(roms.size()); i++)
         {
             S32 idx = scrollOffset + i;
@@ -201,12 +323,10 @@ std::optional<std::filesystem::path> SelectRom(
 
             if (idx == selected)
             {
-                // Bright selection bar
-                SDL_SetRenderDrawColor(renderer, 0x9B, 0xBC, 0x0F, 0xFF);
+                SDL_SetRenderDrawColor(renderer, 0xFF, 0x69, 0xB4, 0xFF);
                 SDL_Rect bar = {LeftPad - 2, y - 2, LogicalW - LeftPad * 2 + 4, EntryHeight};
                 SDL_RenderFillRect(renderer, &bar);
 
-                // Dark text on bright bar
                 DrawText(renderer, LeftPad, y, ">", ColorSelText);
                 DrawText(renderer, LeftPad + 10, y, roms[idx].Title.c_str(), ColorSelText, maxChars);
             }
@@ -216,25 +336,22 @@ std::optional<std::filesystem::path> SelectRom(
             }
         }
 
-        // Scroll indicators
         if (scrollOffset > 0)
         {
-            SDL_SetRenderDrawColor(renderer, 0x8B, 0xAC, 0x0F, 0xFF);
+            SDL_SetRenderDrawColor(renderer, 0xB8, 0xA9, 0xC9, 0xFF);
             S32 cx = LogicalW / 2;
-            // Small up arrow
             SDL_RenderDrawLine(renderer, cx, ListY - 6, cx - 4, ListY - 2);
             SDL_RenderDrawLine(renderer, cx, ListY - 6, cx + 4, ListY - 2);
         }
         if (scrollOffset + visibleCount < static_cast<S32>(roms.size()))
         {
-            SDL_SetRenderDrawColor(renderer, 0x8B, 0xAC, 0x0F, 0xFF);
+            SDL_SetRenderDrawColor(renderer, 0xB8, 0xA9, 0xC9, 0xFF);
             S32 cx = LogicalW / 2;
             S32 by = FooterY - 4;
             SDL_RenderDrawLine(renderer, cx, by + 4, cx - 4, by);
             SDL_RenderDrawLine(renderer, cx, by + 4, cx + 4, by);
         }
 
-        // Footer
         DrawText(renderer, LeftPad, FooterY, roms[selected].Filename.c_str(), ColorDim, maxChars);
 
         SDL_RenderPresent(renderer);

@@ -7,6 +7,9 @@ CMakeUserPresets.json
 *.rom
 *.gb
 *.gbc
+*.bin
+*.cue
+*.iso
 *.zip
 roms/
 test-roms/

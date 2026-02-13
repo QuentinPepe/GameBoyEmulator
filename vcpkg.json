@@ -1,6 +1,6 @@
 {
-    "name": "gameboy-emulator",
-    "version": "0.1.0",
+    "name": "phosphor",
+    "version": "0.2.0",
     "dependencies": [
         "sdl2"
     ]

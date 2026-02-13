@@ -1,18 +1,18 @@
+#include <gb_run.hpp>
 #include <SDL.h>
 #include <print>
 #include <format>
 #include <filesystem>
-#include <string>
 #include <vector>
 
-#include <paths.hpp>
 #include <gameboy.hpp>
 #include <ppu.hpp>
 #include <apu.hpp>
 #include <joypad.hpp>
-#include <rom_selector.hpp>
 
-void RunTests()
+namespace gameboy {
+
+void RunTests(const std::string& testRomsDir)
 {
     const std::vector<std::string> tests = {
         "cpu_instrs/individual/01-special.gb",
@@ -37,7 +37,7 @@ void RunTests()
 
     for (const auto& test : tests)
     {
-        auto romPath = (std::filesystem::path(paths::TestRoms) / test).string();
+        auto romPath = (std::filesystem::path(testRomsDir) / test).string();
         auto cart = Cartridge::Load(romPath);
         if (!cart)
         {
@@ -74,134 +74,12 @@ constexpr int Scale = 4;
 constexpr int WindowWidth = PPU::ScreenWidth * Scale;
 constexpr int WindowHeight = PPU::ScreenHeight * Scale;
 
-int main(int argc, char* argv[])
+int Run(const std::string& romPath, bool fullscreen)
 {
-    std::println("GameBoy Emulator v0.1.0");
-    std::println("========================\n");
-
-    if (argc > 1 && std::string(argv[1]) == "--test")
-    {
-        RunTests();
-        return 0;
-    }
-
-    // Parse arguments
-    bool startFullscreen = false;
-    std::string argPath;
-    for (int i = 1; i < argc; i++)
-    {
-        std::string arg = argv[i];
-        if (arg == "--fullscreen" || arg == "-f")
-            startFullscreen = true;
-        else if (arg != "--test")
-            argPath = arg;
-    }
-
-    // Initialize SDL early (needed for ROM selector UI and controller)
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0)
-    {
-        std::println(stderr, "SDL init failed: {}", SDL_GetError());
-        return 1;
-    }
-
-    // Open first available game controller
-    SDL_GameController* controller = nullptr;
-    for (int i = 0; i < SDL_NumJoysticks(); i++)
-    {
-        if (SDL_IsGameController(i))
-        {
-            controller = SDL_GameControllerOpen(i);
-            if (controller)
-            {
-                std::println("Controller: {}", SDL_GameControllerName(controller));
-                break;
-            }
-        }
-    }
-
-    // Determine ROM path: file, directory, or show selector
-    std::string romPath;
-    bool isGbFile = false;
-    if (!argPath.empty())
-    {
-        auto ext = std::filesystem::path(argPath).extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-        isGbFile = (ext == ".gb" || ext == ".gbc");
-    }
-
-    if (!argPath.empty() && isGbFile)
-    {
-        // Direct ROM file path
-        romPath = argPath;
-    }
-    else
-    {
-        // Directory mode: scan for ROMs and show selector
-        auto romDir = argPath.empty()
-            ? std::filesystem::path(paths::Roms)
-            : std::filesystem::path(argPath);
-
-        auto roms = ScanRoms(romDir);
-        if (roms.empty())
-        {
-            std::println(stderr, "No .gb/.gbc ROMs found in: {}", romDir.string());
-            if (controller) SDL_GameControllerClose(controller);
-            SDL_Quit();
-            return 1;
-        }
-
-        // Create temporary window + renderer for the selector
-        SDL_Window* selWindow = SDL_CreateWindow(
-            "GameBoy Emulator",
-            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-            WindowWidth, WindowHeight,
-            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
-        );
-        if (!selWindow)
-        {
-            std::println(stderr, "Window creation failed: {}", SDL_GetError());
-            if (controller) SDL_GameControllerClose(controller);
-            SDL_Quit();
-            return 1;
-        }
-
-        if (startFullscreen)
-            SDL_SetWindowFullscreen(selWindow, SDL_WINDOW_FULLSCREEN_DESKTOP);
-
-        SDL_Renderer* selRenderer = SDL_CreateRenderer(selWindow, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-        if (!selRenderer)
-        {
-            std::println(stderr, "Renderer creation failed: {}", SDL_GetError());
-            SDL_DestroyWindow(selWindow);
-            if (controller) SDL_GameControllerClose(controller);
-            SDL_Quit();
-            return 1;
-        }
-
-        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
-
-        auto selected = SelectRom(selRenderer, roms);
-
-        SDL_DestroyRenderer(selRenderer);
-        SDL_DestroyWindow(selWindow);
-
-        if (!selected)
-        {
-            if (controller) SDL_GameControllerClose(controller);
-            SDL_Quit();
-            return 0;
-        }
-
-        romPath = selected->string();
-    }
-
-    // Load cartridge
     auto cart = Cartridge::Load(romPath);
     if (!cart)
     {
         std::println(stderr, "Failed to load ROM: {}", cart.error());
-        if (controller) SDL_GameControllerClose(controller);
-        SDL_Quit();
         return 1;
     }
     std::println("Loaded: {}", cart->Header().Title);
@@ -211,13 +89,14 @@ int main(int argc, char* argv[])
         32 << cart->Header().RomSize,
         cart->Header().RamSize == 0 ? 0 : (2 << (cart->Header().RamSize * 2 - 1)));
 
-    // Set up save directory (platform-appropriate user data folder)
+    // Set up save directory
     auto romStem = std::filesystem::path(romPath).stem().string();
     std::string statePath;
-    char* prefPath = SDL_GetPrefPath("", "GameBoyEmulator");
+    char* prefPath = SDL_GetPrefPath("", "Phosphor");
     if (prefPath)
     {
-        auto saveDir = std::filesystem::path(prefPath);
+        auto saveDir = std::filesystem::path(prefPath) / "GameBoy";
+        std::filesystem::create_directories(saveDir);
         SDL_free(prefPath);
         cart->SetSavePath(saveDir / (romStem + ".sav"));
         statePath = (saveDir / (romStem + ".ss0")).string();
@@ -237,13 +116,9 @@ int main(int argc, char* argv[])
 
     SDL_AudioDeviceID audioDevice = SDL_OpenAudioDevice(nullptr, 0, &audioSpec, nullptr, 0);
     if (audioDevice == 0)
-    {
         std::println(stderr, "Audio device failed: {}", SDL_GetError());
-    }
     else
-    {
         SDL_PauseAudioDevice(audioDevice, 0);
-    }
 
     // Game window
     SDL_Window* window = SDL_CreateWindow(
@@ -255,12 +130,10 @@ int main(int argc, char* argv[])
     if (!window)
     {
         std::println(stderr, "Window creation failed: {}", SDL_GetError());
-        if (controller) SDL_GameControllerClose(controller);
-        SDL_Quit();
         return 1;
     }
 
-    if (startFullscreen)
+    if (fullscreen)
         SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
 
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -268,8 +141,6 @@ int main(int argc, char* argv[])
     {
         std::println(stderr, "Renderer creation failed: {}", SDL_GetError());
         SDL_DestroyWindow(window);
-        if (controller) SDL_GameControllerClose(controller);
-        SDL_Quit();
         return 1;
     }
 
@@ -284,8 +155,6 @@ int main(int argc, char* argv[])
         std::println(stderr, "Texture creation failed: {}", SDL_GetError());
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
-        if (controller) SDL_GameControllerClose(controller);
-        SDL_Quit();
         return 1;
     }
 
@@ -293,6 +162,21 @@ int main(int argc, char* argv[])
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
 
     GameBoy gb{std::move(*cart)};
+
+    // Open first available game controller
+    SDL_GameController* controller = nullptr;
+    for (int i = 0; i < SDL_NumJoysticks(); i++)
+    {
+        if (SDL_IsGameController(i))
+        {
+            controller = SDL_GameControllerOpen(i);
+            if (controller)
+            {
+                std::println("Controller: {}", SDL_GameControllerName(controller));
+                break;
+            }
+        }
+    }
 
     bool running = true;
     while (running)
@@ -425,9 +309,8 @@ int main(int argc, char* argv[])
         auto& apu = gb.GetAPU();
         if (audioDevice != 0 && apu.GetSampleCount() > 0)
         {
-            // Prevent audio lag: only queue if buffer isn't backing up
             U32 queued = SDL_GetQueuedAudioSize(audioDevice);
-            constexpr U32 MaxQueueBytes = APU::SampleRate * sizeof(float) / 15;  // ~3 frames
+            constexpr U32 MaxQueueBytes = APU::SampleRate * sizeof(float) / 15;
             if (queued < MaxQueueBytes)
             {
                 SDL_QueueAudio(audioDevice, apu.GetAudioBuffer().data(),
@@ -446,7 +329,8 @@ int main(int argc, char* argv[])
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
-    SDL_Quit();
 
     return 0;
 }
+
+} // namespace gameboy

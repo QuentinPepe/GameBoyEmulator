@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
-project(GameBoyEmulator
-    VERSION 0.1.0
+project(Phosphor
+    VERSION 0.2.0
     LANGUAGES CXX
-    DESCRIPTION "A Game Boy emulator in C++23"
+    DESCRIPTION "Multi-system emulator in C++23"
 )
 
 set(CMAKE_CXX_STANDARD 23)
@@ -20,30 +20,33 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/src/*.cpp"
+file(GLOB_RECURSE COMMON_SRC CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/common/src/*.cpp"
+)
+file(GLOB_RECURSE COMMON_HDR CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/common/include/*.hpp"
 )
 
-file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/include/*.hpp"
-    "${CMAKE_SOURCE_DIR}/include/*.h"
+file(GLOB_RECURSE GAMEBOY_SRC CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/gameboy/src/*.cpp"
+)
+file(GLOB_RECURSE GAMEBOY_HDR CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/gameboy/include/*.hpp"
 )
 
 add_executable(${PROJECT_NAME}
-    ${SOURCES}
-    ${HEADERS}
+    ${COMMON_SRC} ${COMMON_HDR}
+    ${GAMEBOY_SRC} ${GAMEBOY_HDR}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/common/include
+    ${CMAKE_SOURCE_DIR}/gameboy/include
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     $<$<CONFIG:Debug>:DEBUG_BUILD>
     $<$<CONFIG:Release>:NDEBUG>
-    PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
-    TEST_ROMS_PATH="${CMAKE_SOURCE_DIR}/test-roms"
-    ROMS_PATH="${CMAKE_SOURCE_DIR}/roms"
 )
 
 find_package(SDL2 CONFIG REQUIRED)
