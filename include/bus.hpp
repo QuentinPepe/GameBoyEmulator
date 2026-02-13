@@ -67,6 +67,10 @@ private:
     bool m_HdmaActive{false};
     bool m_HdmaMode{false};  // false=General DMA, true=HBlank DMA
 
+    // Serial transfer
+    bool m_SerialTransferring{false};
+    U16 m_SerialCycles{0};
+
     std::string m_SerialBuffer;
     TestResult m_TestResult{TestResult::Running};
 };

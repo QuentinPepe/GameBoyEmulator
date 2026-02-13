@@ -43,6 +43,6 @@ inline void Read(std::istream& in, std::vector<U8>& vec) {
 }
 
 constexpr U32 Magic = 0x53534247;  // "GBSS"
-constexpr U8 Version = 2;
+constexpr U8 Version = 3;
 
 } // namespace state

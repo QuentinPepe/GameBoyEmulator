@@ -32,6 +32,22 @@ void Bus::Tick()
 
     m_APU.Tick(ppuCycles);  // APU stays at 4MHz
 
+    // Serial transfer: count down and fire interrupt when done
+    if (m_SerialTransferring)
+    {
+        if (m_SerialCycles <= 4)
+        {
+            m_SerialTransferring = false;
+            m_IoRegisters[0x01] = 0xFF;           // SB = 0xFF (no device connected)
+            m_IoRegisters[0x02] &= 0x7F;          // Clear bit 7 of SC (transfer complete)
+            m_IoRegisters[0x0F] |= 0x08;          // Serial interrupt = bit 3
+        }
+        else
+        {
+            m_SerialCycles -= 4;
+        }
+    }
+
     // CGB HBlank DMA: transfer 16 bytes when HBlank starts
     // Always consume the flag to prevent stale triggers
     const bool hblankStarted = m_PPU.HBlankStarted();
@@ -99,19 +115,32 @@ U8 Bus::Read(U16 address) const {
 }
 
 void Bus::Write(U16 address, U8 value) {
-    // Serial output: when SC (0xFF02) is written with 0x81, capture SB (0xFF01)
-    if (address == 0xFF02 && value == 0x81)
+    // Serial: handle SC (0xFF02) writes
+    if (address == 0xFF02)
     {
-        const char c = static_cast<char>(m_IoRegisters[0x01]);
+        m_IoRegisters[0x02] = value;
 
-        m_SerialBuffer += c;
-        if (m_SerialBuffer.find("Passed") != std::string::npos)
-            m_TestResult = TestResult::Passed;
-        else if (m_SerialBuffer.find("Failed") != std::string::npos)
-            m_TestResult = TestResult::Failed;
+        // Test ROM output detection: capture SB when transfer starts with internal clock
+        if ((value & 0x81) == 0x81)
+        {
+            const char c = static_cast<char>(m_IoRegisters[0x01]);
+            m_SerialBuffer += c;
+            if (m_SerialBuffer.find("Passed") != std::string::npos)
+                m_TestResult = TestResult::Passed;
+            else if (m_SerialBuffer.find("Failed") != std::string::npos)
+                m_TestResult = TestResult::Failed;
+            if (m_SerialBuffer.size() > 100)
+                m_SerialBuffer = m_SerialBuffer.substr(50);
+        }
 
-        if (m_SerialBuffer.size() > 100)
-            m_SerialBuffer = m_SerialBuffer.substr(50);
+        // Start transfer if bit 7 (start) and bit 0 (internal clock) are set
+        if ((value & 0x81) == 0x81)
+        {
+            m_SerialTransferring = true;
+            // CGB fast serial (bit 1): 32 T-cycles; normal: 1024 T-cycles
+            m_SerialCycles = (m_CgbMode && (value & 0x02)) ? 32 : 1024;
+        }
+        return;
     }
     if (address <= 0x7FFF) {
         m_Cartridge.Write(address, value);
@@ -233,6 +262,9 @@ void Bus::SaveState(std::ostream& out) const
     state::Write(out, m_HdmaLength);
     state::Write(out, m_HdmaActive);
     state::Write(out, m_HdmaMode);
+    // Serial
+    state::Write(out, m_SerialTransferring);
+    state::Write(out, m_SerialCycles);
 }
 
 void Bus::LoadState(std::istream& in)
@@ -251,4 +283,7 @@ void Bus::LoadState(std::istream& in)
     state::Read(in, m_HdmaLength);
     state::Read(in, m_HdmaActive);
     state::Read(in, m_HdmaMode);
+    // Serial
+    state::Read(in, m_SerialTransferring);
+    state::Read(in, m_SerialCycles);
 }

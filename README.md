@@ -61,7 +61,7 @@ flowchart TD
 - [x] RTC (Real Time Clock) for MBC3
 - [x] Save states (F5 save, F8 load)
 - [x] Game Boy Color (CGB) — double speed, color palettes, VRAM/WRAM banking, HDMA
-- [ ] Serial link
+- [x] Serial link
 - [x] Cycle-accurate timing
 
 ### Controls
